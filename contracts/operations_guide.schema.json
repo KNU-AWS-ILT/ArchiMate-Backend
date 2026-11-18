@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "CostAlarm": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "condition": {
+          "description": "예: '월 예상 비용이 4만 원을 넘으면'",
+          "title": "Condition",
+          "type": "string"
+        },
+        "how_to_set": {
+          "description": "AWS Budgets/CloudWatch 설정 방법",
+          "title": "How To Set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "condition",
+        "how_to_set"
+      ],
+      "title": "CostAlarm",
+      "type": "object"
+    },
+    "DeploymentStep": {
+      "properties": {
+        "order": {
+          "minimum": 1,
+          "title": "Order",
+          "type": "integer"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "description": "초보자가 따라 할 수 있게 구체적으로",
+          "title": "Description",
+          "type": "string"
+        },
+        "console_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "AWS 콘솔 경로, 예: 'Lambda > 함수 생성'",
+          "title": "Console Path"
+        }
+      },
+      "required": [
+        "order",
+        "title",
+        "description"
+      ],
+      "title": "DeploymentStep",
+      "type": "object"
+    },
+    "Frequency": {
+      "enum": [
+        "daily",
+        "weekly",
+        "monthly"
+      ],
+      "title": "Frequency",
+      "type": "string"
+    },
+    "IncidentItem": {
+      "properties": {
+        "symptom": {
+          "description": "예: '사이트가 502 에러를 낸다'",
+          "title": "Symptom",
+          "type": "string"
+        },
+        "likely_cause": {
+          "title": "Likely Cause",
+          "type": "string"
+        },
+        "check": {
+          "description": "확인 방법",
+          "title": "Check",
+          "type": "string"
+        },
+        "action": {
+          "description": "조치 방법",
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symptom",
+        "likely_cause",
+        "check",
+        "action"
+      ],
+      "title": "IncidentItem",
+      "type": "object"
+    },
+    "RoutineTask": {
+      "properties": {
+        "frequency": {
+          "$ref": "#/$defs/Frequency"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frequency",
+        "task"
+      ],
+      "title": "RoutineTask",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "deployment_steps": {
+      "items": {
+        "$ref": "#/$defs/DeploymentStep"
+      },
+      "title": "Deployment Steps",
+      "type": "array"
+    },
+    "cost_alarms": {
+      "items": {
+        "$ref": "#/$defs/CostAlarm"
+      },
+      "title": "Cost Alarms",
+      "type": "array"
+    },
+    "incident_checklist": {
+      "items": {
+        "$ref": "#/$defs/IncidentItem"
+      },
+      "title": "Incident Checklist",
+      "type": "array"
+    },
+    "routine_tasks": {
+      "items": {
+        "$ref": "#/$defs/RoutineTask"
+      },
+      "title": "Routine Tasks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "deployment_steps",
+    "cost_alarms",
+    "incident_checklist",
+    "routine_tasks"
+  ],
+  "title": "OperationsGuide",
+  "type": "object"
+}

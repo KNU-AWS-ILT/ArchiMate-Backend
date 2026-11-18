@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "AvailabilityNeed": {
+      "enum": [
+        "best_effort",
+        "standard",
+        "high"
+      ],
+      "title": "AvailabilityNeed",
+      "type": "string"
+    },
+    "DataStorageNeed": {
+      "enum": [
+        "relational",
+        "key_value",
+        "file_storage",
+        "none"
+      ],
+      "title": "DataStorageNeed",
+      "type": "string"
+    },
+    "ServiceType": {
+      "enum": [
+        "web_app",
+        "api_only",
+        "static_site",
+        "ai_chatbot",
+        "data_batch",
+        "other"
+      ],
+      "title": "ServiceType",
+      "type": "string"
+    },
+    "TeamExperience": {
+      "enum": [
+        "none",
+        "beginner",
+        "intermediate",
+        "advanced"
+      ],
+      "title": "TeamExperience",
+      "type": "string"
+    },
+    "TrafficPattern": {
+      "enum": [
+        "steady",
+        "business_hours",
+        "spiky",
+        "unknown"
+      ],
+      "title": "TrafficPattern",
+      "type": "string"
+    },
+    "UserScale": {
+      "description": "동시 사용자 수 구간.",
+      "enum": [
+        "under_100",
+        "under_1k",
+        "under_10k",
+        "over_10k"
+      ],
+      "title": "UserScale",
+      "type": "string"
+    }
+  },
+  "description": "가이드형 인터뷰 결과. 필드명 = 인터뷰 질문 id.",
+  "properties": {
+    "service_type": {
+      "$ref": "#/$defs/ServiceType"
+    },
+    "concurrent_users": {
+      "$ref": "#/$defs/UserScale"
+    },
+    "monthly_budget_krw": {
+      "description": "월 예산(원)",
+      "maximum": 100000000,
+      "minimum": 0,
+      "title": "Monthly Budget Krw",
+      "type": "integer"
+    },
+    "team_experience": {
+      "$ref": "#/$defs/TeamExperience"
+    },
+    "data_storage": {
+      "items": {
+        "$ref": "#/$defs/DataStorageNeed"
+      },
+      "minItems": 1,
+      "title": "Data Storage",
+      "type": "array"
+    },
+    "traffic_pattern": {
+      "$ref": "#/$defs/TrafficPattern",
+      "default": "unknown"
+    },
+    "availability": {
+      "$ref": "#/$defs/AvailabilityNeed",
+      "default": "standard"
+    },
+    "free_text": {
+      "anyOf": [
+        {
+          "maxLength": 1000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "자유 서술 보완 (서비스 설명, 특이사항)",
+      "title": "Free Text"
+    }
+  },
+  "required": [
+    "service_type",
+    "concurrent_users",
+    "monthly_budget_krw",
+    "team_experience",
+    "data_storage"
+  ],
+  "title": "Requirements",
+  "type": "object"
+}
