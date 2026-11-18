@@ -1,0 +1,32 @@
+# 영역별 담당자 — PR 시 자동으로 리뷰어 지정. 아래 임시 값을 GitHub 아이디로 바꿔서 쓰세요.
+#   AI_BACKEND_ID  = 백엔드(AI 생성)
+#   API_BACKEND_ID = 백엔드(API·비용)
+# 마지막에 매칭되는 규칙이 우선한다.
+
+*                                          @API_BACKEND_ID @AI_BACKEND_ID
+
+# ── 백엔드(AI 생성) ──
+/src/archimate/llm/                        @AI_BACKEND_ID
+/src/archimate/handlers/design_generation.py  @AI_BACKEND_ID
+/tests/llm/                                @AI_BACKEND_ID
+/scripts/llm/                              @AI_BACKEND_ID
+/evals/                                    @AI_BACKEND_ID
+
+# ── 백엔드(API·비용) ──
+/src/archimate/api/                        @API_BACKEND_ID
+/src/archimate/pricing/                    @API_BACKEND_ID
+/src/archimate/storage/                    @API_BACKEND_ID
+/src/archimate/handlers/interview_api.py   @API_BACKEND_ID
+/src/archimate/handlers/cost_calculation.py   @API_BACKEND_ID
+/data/pricing/                             @API_BACKEND_ID
+/tests/api/                                @API_BACKEND_ID
+/tests/pricing/                            @API_BACKEND_ID
+/tests/storage/                            @API_BACKEND_ID
+
+# ── 공동 소유 (계약) — 두 사람 모두 리뷰 ──
+/src/archimate/schemas/                    @API_BACKEND_ID @AI_BACKEND_ID
+/src/archimate/handlers/__init__.py        @API_BACKEND_ID @AI_BACKEND_ID
+/contracts/                                @API_BACKEND_ID @AI_BACKEND_ID
+/tests/contracts/                          @API_BACKEND_ID @AI_BACKEND_ID
+/pyproject.toml                            @API_BACKEND_ID @AI_BACKEND_ID
+/.env.example                              @API_BACKEND_ID @AI_BACKEND_ID
