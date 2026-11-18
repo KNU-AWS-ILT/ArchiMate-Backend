@@ -1,0 +1,82 @@
+{
+  "title": "서버리스 최소비용 구성",
+  "summary": "정적 화면은 S3와 CloudFront로, API는 API Gateway와 Lambda로, 데이터는 DynamoDB에 저장합니다. 사용한 만큼만 비용이 나와 동시 사용자 100명 수준에서는 대부분 Free Tier 안에서 운영됩니다.",
+  "groups": [
+    {"id": "region_seoul", "kind": "region", "label": "서울 리전 (ap-northeast-2)", "parent_id": null}
+  ],
+  "nodes": [
+    {
+      "id": "cdn", "service": "cloudfront", "label": "CDN", "group_id": null,
+      "role": "웹 화면을 전 세계에 빠르게 전달하고 HTTPS를 제공",
+      "rationale": {
+        "why": "정적 파일을 캐시해 S3 요청과 전송 비용을 줄이고, 무료 HTTPS 인증서를 붙일 수 있습니다.",
+        "alternatives": [{"service": "s3", "reason": "S3 정적 호스팅만 쓰면 더 단순하지만 HTTPS를 직접 붙일 수 없습니다."}],
+        "cautions": ["배포 후 이전 화면이 보이면 캐시 무효화(Invalidation)가 필요합니다."]
+      },
+      "usage": {"monthly_requests": 300000, "data_transfer_out_gb": 5}
+    },
+    {
+      "id": "web_bucket", "service": "s3", "label": "웹 화면 저장소", "group_id": "region_seoul",
+      "role": "빌드한 React 정적 파일 보관",
+      "rationale": {
+        "why": "서버 없이 정적 파일을 저렴하게 보관할 수 있어 바이브 코딩으로 만든 프론트를 그대로 올리기 좋습니다.",
+        "alternatives": [{"service": "ec2", "reason": "서버에 직접 올릴 수 있지만 상시 비용과 관리 부담이 생깁니다."}],
+        "cautions": ["버킷을 퍼블릭으로 열지 말고 CloudFront에서만 읽도록 OAC를 설정하세요."]
+      },
+      "usage": {"storage_gb": 1}
+    },
+    {
+      "id": "api_gw", "service": "api_gateway", "label": "API 입구", "group_id": "region_seoul",
+      "role": "브라우저의 API 요청을 받아 Lambda로 전달",
+      "rationale": {
+        "why": "요청 수만큼만 과금되고 인증·요청 제한 기능이 기본 제공됩니다.",
+        "alternatives": [{"service": "alb", "reason": "ALB는 시간당 고정 비용이 있어 트래픽이 적을 때 불리합니다."}],
+        "cautions": ["모집 기간 트래픽 폭주에 대비해 스로틀링 한도를 설정하세요."]
+      },
+      "usage": {"monthly_requests": 200000}
+    },
+    {
+      "id": "api_lambda", "service": "lambda", "label": "API 처리 함수", "group_id": "region_seoul",
+      "role": "지원서 제출·조회 등 비즈니스 로직 실행",
+      "rationale": {
+        "why": "요청이 없을 때는 비용이 0원이고 서버 패치·확장을 AWS가 대신합니다.",
+        "alternatives": [{"service": "ecs_fargate", "reason": "컨테이너가 항상 떠 있어 안정적이지만 최소 비용이 생깁니다."}],
+        "cautions": ["첫 요청이 느린 콜드 스타트가 있을 수 있습니다.", "실행 시간 제한(최대 15분)이 있습니다."]
+      },
+      "usage": {"monthly_requests": 200000, "avg_duration_ms": 200, "memory_mb": 256}
+    },
+    {
+      "id": "app_db", "service": "dynamodb", "label": "지원서 DB", "group_id": "region_seoul",
+      "role": "동아리 공고와 지원서 저장",
+      "rationale": {
+        "why": "온디맨드 모드는 읽기·쓰기만큼만 과금되고 서버 관리가 없어 AWS 경험이 없는 팀에 적합합니다.",
+        "alternatives": [{"service": "rds", "reason": "SQL과 복잡한 조인이 필요하면 RDS가 낫지만 월 고정 비용이 생깁니다."}],
+        "cautions": ["조회 패턴을 먼저 정하고 키를 설계해야 나중에 고생하지 않습니다."]
+      },
+      "usage": {"storage_gb": 1, "monthly_reads": 500000, "monthly_writes": 50000}
+    },
+    {
+      "id": "logs", "service": "cloudwatch", "label": "로그·알람", "group_id": "region_seoul",
+      "role": "Lambda 로그 수집과 오류 알람",
+      "rationale": {
+        "why": "Lambda 로그가 자동으로 쌓여 장애 원인을 바로 찾을 수 있습니다.",
+        "alternatives": [],
+        "cautions": ["로그 보관 기간을 설정하지 않으면 저장 비용이 계속 늘어납니다."]
+      },
+      "usage": {}
+    }
+  ],
+  "edges": [
+    {"source": "user", "target": "cdn", "label": "웹 접속 (HTTPS)"},
+    {"source": "cdn", "target": "web_bucket", "label": "정적 파일"},
+    {"source": "user", "target": "api_gw", "label": "API 요청"},
+    {"source": "api_gw", "target": "api_lambda", "label": null},
+    {"source": "api_lambda", "target": "app_db", "label": "지원서 읽기/쓰기"},
+    {"source": "api_lambda", "target": "logs", "label": "로그"}
+  ],
+  "operation_difficulty": 1,
+  "pros": ["트래픽이 적을 때 비용이 거의 0원", "서버 관리가 필요 없음", "모집 기간 트래픽 급증에 자동 대응"],
+  "cons": ["DynamoDB는 SQL처럼 자유로운 조회가 어려움", "Lambda 콜드 스타트로 첫 응답이 느릴 수 있음"],
+  "budget_note": "월 5만 원 예산보다 훨씬 낮은 수준으로 운영할 수 있고 대부분 Free Tier 범위입니다.",
+  "scaling_path": ["사용자 1만 명: DynamoDB 키 설계 점검, CloudFront 캐시 정책 조정", "사용자 10만 명: Lambda 동시 실행 한도 상향 요청, 읽기 많은 데이터에 캐시 추가"]
+}

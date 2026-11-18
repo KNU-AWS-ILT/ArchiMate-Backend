@@ -1,0 +1,99 @@
+{
+  "title": "컨테이너 기반 확장형 구성",
+  "summary": "ALB 뒤에 ECS Fargate 컨테이너를 두 가용 영역에 나눠 실행하고, RDS Multi-AZ와 ElastiCache로 장애와 트래픽 증가에 대비합니다. 안정성은 가장 높지만 고정 비용과 운영 난이도도 가장 높습니다.",
+  "groups": [
+    {"id": "region_seoul", "kind": "region", "label": "서울 리전 (ap-northeast-2)", "parent_id": null},
+    {"id": "vpc_main", "kind": "vpc", "label": "VPC (10.0.0.0/16)", "parent_id": "region_seoul"},
+    {"id": "public_subnet", "kind": "public_subnet", "label": "퍼블릭 서브넷 (2개 AZ)", "parent_id": "vpc_main"},
+    {"id": "private_subnet", "kind": "private_subnet", "label": "프라이빗 서브넷 (2개 AZ)", "parent_id": "vpc_main"}
+  ],
+  "nodes": [
+    {
+      "id": "cdn", "service": "cloudfront", "label": "CDN", "group_id": null,
+      "role": "웹 화면 전달과 HTTPS 제공",
+      "rationale": {
+        "why": "정적 파일 캐시로 서버 부하와 전송 비용을 줄입니다.",
+        "alternatives": [],
+        "cautions": ["캐시 무효화 절차를 배포 파이프라인에 넣으세요."]
+      },
+      "usage": {"monthly_requests": 300000, "data_transfer_out_gb": 5}
+    },
+    {
+      "id": "web_bucket", "service": "s3", "label": "웹 화면 저장소", "group_id": "region_seoul",
+      "role": "React 빌드 파일 보관",
+      "rationale": {"why": "정적 파일 보관 비용이 매우 낮습니다.", "alternatives": [], "cautions": ["퍼블릭 접근 차단을 유지하세요."]},
+      "usage": {"storage_gb": 1}
+    },
+    {
+      "id": "lb", "service": "alb", "label": "로드밸런서", "group_id": "public_subnet",
+      "role": "요청을 여러 컨테이너에 나눠 전달하고 상태 확인",
+      "rationale": {
+        "why": "컨테이너가 하나 죽어도 다른 컨테이너로 자동으로 보내 서비스가 멈추지 않습니다.",
+        "alternatives": [{"service": "api_gateway", "reason": "요청 수 과금이라 트래픽이 아주 많으면 ALB보다 비싸질 수 있습니다."}],
+        "cautions": ["트래픽이 없어도 시간당 비용이 나옵니다."]
+      },
+      "usage": {"hours_per_month": 730}
+    },
+    {
+      "id": "nat", "service": "nat_gateway", "label": "NAT 게이트웨이", "group_id": "public_subnet",
+      "role": "프라이빗 서브넷 컨테이너의 외부 인터넷 접근",
+      "rationale": {
+        "why": "컨테이너를 외부에 노출하지 않으면서 외부 API 호출과 이미지 다운로드를 할 수 있습니다.",
+        "alternatives": [],
+        "cautions": ["대표적인 숨은 비용입니다. 시간당 요금과 처리 데이터 요금이 모두 나옵니다."]
+      },
+      "usage": {"hours_per_month": 730, "data_transfer_out_gb": 10}
+    },
+    {
+      "id": "app", "service": "ecs_fargate", "label": "API 컨테이너", "group_id": "private_subnet",
+      "role": "API 서버 컨테이너 실행(2개 이상)",
+      "rationale": {
+        "why": "서버를 직접 관리하지 않으면서 상시 실행되는 컨테이너로 콜드 스타트 없이 응답합니다.",
+        "alternatives": [{"service": "lambda", "reason": "트래픽이 적을 때는 Lambda가 훨씬 저렴합니다."}, {"service": "ec2", "reason": "더 싸게 운영할 수 있지만 OS 패치와 관리가 필요합니다."}],
+        "cautions": ["오토스케일링 최소·최대 태스크 수를 정해 비용 폭주를 막으세요."]
+      },
+      "usage": {"instance_count": 2, "hours_per_month": 730, "memory_mb": 1024}
+    },
+    {
+      "id": "cache", "service": "elasticache", "label": "캐시", "group_id": "private_subnet",
+      "role": "자주 읽는 공고 목록 캐시",
+      "rationale": {
+        "why": "모집 기간에 같은 공고 조회가 몰릴 때 DB 부하를 줄입니다.",
+        "alternatives": [],
+        "cautions": ["캐시와 DB 데이터 불일치에 주의하세요."]
+      },
+      "usage": {"instance_type": "cache.t4g.micro", "instance_count": 1, "hours_per_month": 730}
+    },
+    {
+      "id": "app_db", "service": "rds", "label": "PostgreSQL DB (Multi-AZ)", "group_id": "private_subnet",
+      "role": "회원·공고·지원서 저장, 장애 시 자동 전환",
+      "rationale": {
+        "why": "한 가용 영역에 장애가 나도 대기 DB로 자동 전환되어 데이터와 서비스가 유지됩니다.",
+        "alternatives": [{"service": "dynamodb", "reason": "운영 부담은 적지만 SQL 조회가 어렵습니다."}],
+        "cautions": ["Multi-AZ는 인스턴스 비용이 약 2배입니다."]
+      },
+      "usage": {"instance_type": "db.t4g.small", "instance_count": 1, "storage_gb": 50, "hours_per_month": 730, "multi_az": true}
+    },
+    {
+      "id": "logs", "service": "cloudwatch", "label": "로그·알람", "group_id": "region_seoul",
+      "role": "컨테이너 로그, 지표, 알람",
+      "rationale": {"why": "장애 감지와 오토스케일링 기준 지표를 제공합니다.", "alternatives": [], "cautions": ["로그 보관 기간을 설정하세요."]},
+      "usage": {}
+    }
+  ],
+  "edges": [
+    {"source": "user", "target": "cdn", "label": "웹 접속 (HTTPS)"},
+    {"source": "cdn", "target": "web_bucket", "label": "정적 파일"},
+    {"source": "user", "target": "lb", "label": "API 요청"},
+    {"source": "lb", "target": "app", "label": null},
+    {"source": "app", "target": "cache", "label": "캐시 조회"},
+    {"source": "app", "target": "app_db", "label": "SQL"},
+    {"source": "app", "target": "nat", "label": "외부 API 호출"},
+    {"source": "app", "target": "logs", "label": "로그·지표"}
+  ],
+  "operation_difficulty": 4,
+  "pros": ["가용 영역 장애에도 서비스 유지", "콜드 스타트 없이 일정한 응답 속도", "사용자 10만 명 규모까지 구조 변경 없이 확장"],
+  "cons": ["ALB·NAT·Multi-AZ로 고정 비용이 높음", "컨테이너·네트워크 지식이 필요해 AWS 경험이 없는 팀에는 부담"],
+  "budget_note": "고정 비용이 커서 월 5만 원 예산을 넘을 가능성이 높습니다. 서비스가 성장한 뒤 전환을 권장합니다.",
+  "scaling_path": ["사용자 1만 명: 현재 구성 그대로 태스크 수만 조정", "사용자 10만 명: RDS 읽기 전용 복제본, CloudFront로 API 캐시 확대"]
+}
