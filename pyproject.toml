@@ -1,0 +1,45 @@
+[project]
+name = "archimate-backend"
+version = "0.1.0"
+description = "ArchiMate 백엔드: 요구사항 인터뷰 → AWS 아키텍처 3안 생성"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # LLM 제공자 SDK
+    "anthropic[bedrock]>=2.10",   # Bedrock(Claude) — 최종 배포용
+    "google-genai>=3.5",          # Gemini 무료 티어 — 개발용
+]
+
+[project.optional-dependencies]
+# 개발 도구: pip install -e ".[dev]"
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/archimate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+ignore = ["E501"]  # 줄 길이는 formatter가 관리 (한글 주석·문자열 예외)
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["ASYNC240"]

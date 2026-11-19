@@ -1,0 +1,32 @@
+# 영역별 담당자 — PR 시 자동으로 리뷰어 지정
+#   syd348      = 백엔드(AI 생성)
+#   dev-sohyeon = 백엔드(API·비용)
+# 마지막에 매칭되는 규칙이 우선한다.
+
+*                                          @dev-sohyeon @syd348
+
+# ── 백엔드(AI 생성) ──
+/src/archimate/llm/                        @syd348
+/src/archimate/handlers/generate.py         @syd348
+/src/archimate/handlers/explain.py          @syd348
+/tests/llm/                                @syd348
+/scripts/llm/                              @syd348
+/evals/                                    @syd348
+
+# ── 백엔드(API·비용) ──
+/src/archimate/api/                        @dev-sohyeon
+/src/archimate/pricing/                    @dev-sohyeon
+/src/archimate/storage/                    @dev-sohyeon
+/src/archimate/handlers/sync_prices.py      @dev-sohyeon
+/data/pricing/                             @dev-sohyeon
+/tests/api/                                @dev-sohyeon
+/tests/pricing/                            @dev-sohyeon
+/tests/storage/                            @dev-sohyeon
+
+# ── 공동 소유 (계약) — 두 사람 모두 리뷰 ──
+/src/archimate/schemas/                    @dev-sohyeon @syd348
+/src/archimate/handlers/__init__.py        @dev-sohyeon @syd348
+/contracts/                                @dev-sohyeon @syd348
+/tests/contracts/                          @dev-sohyeon @syd348
+/pyproject.toml                            @dev-sohyeon @syd348
+/.env.example                              @dev-sohyeon @syd348
