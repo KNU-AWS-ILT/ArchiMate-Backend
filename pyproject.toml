@@ -12,7 +12,8 @@ dependencies = [
     "google-genai>=3.5",          # Gemini 무료 티어 — 개발용
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
+# 개발 도구: pip install -e ".[dev]"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
