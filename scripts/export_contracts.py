@@ -1,0 +1,106 @@
+"""팀 공유 계약 내보내기 → contracts/
+
+    python scripts/export_contracts.py
+
+- contracts/*.schema.json : JSON Schema (프론트 타입 생성, 요청·응답 검증용). 필드명 camelCase
+- contracts/examples/*.json : 데모 시나리오 실제 예시 (프론트 화면 개발용, API A~D 응답 모양)
+  monthlyCost는 비용 계산(API·비용 담당) 연결 전이라 null이다.
+
+src/archimate/schemas 또는 인터뷰 질문·고정 응답을 바꾸면 실행해서 같은 PR에 포함한다.
+예시는 Mock 제공자로 실제 파이프라인을 돌려 만들므로 항상 스키마·검증을 통과한 데이터다.
+"""
+
+import asyncio
+import json
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, TypeAdapter
+
+from archimate.llm import INTERVIEW_QUESTIONS, build_requirements
+from archimate.llm.interview import InterviewQuestion
+from archimate.llm.pipeline import explain_node, generate_designs
+from archimate.llm.providers.mock import MockProvider, load_fixture
+from archimate.llm.settings import LLMSettings
+from archimate.schemas import (
+    CreateDesignRequest,
+    DesignJob,
+    DesignJobAccepted,
+    DesignResult,
+    ErrorCode,
+    ErrorResponse,
+    JobStatus,
+    NodeExplanation,
+    OperationsGuide,
+    Requirements,
+    Tier,
+)
+
+ROOT = Path(__file__).resolve().parents[1] / "contracts"
+# (모델, 모드) — 요청은 validation, 응답은 serialization 기준 스키마
+SCHEMAS: dict[str, tuple[type[BaseModel], Literal["validation", "serialization"]]] = {
+    "requirements": (Requirements, "validation"),
+    "create_design_request": (CreateDesignRequest, "validation"),
+    "interview_question": (InterviewQuestion, "serialization"),
+    "design_job_accepted": (DesignJobAccepted, "serialization"),
+    "design_job": (DesignJob, "serialization"),
+    "operations_guide": (OperationsGuide, "serialization"),
+    "node_explanation": (NodeExplanation, "serialization"),
+    "error_response": (ErrorResponse, "serialization"),
+}
+JOB_ID = "job_demo"  # 예시용. 실제 id 형식은 API·비용 담당이 정한다
+
+
+def write_json(path: Path, data: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    print(f"wrote {path.relative_to(ROOT.parent)}")
+
+
+async def build_examples() -> dict[str, object]:
+    answers = json.loads(load_fixture("demo_answers.json"))
+    req = build_requirements(answers)
+    provider, settings = MockProvider(), LLMSettings(provider="mock")
+    design_set = await generate_designs(req, provider=provider, settings=settings)
+    results = [
+        DesignResult(id=f"{JOB_ID}_{d.tier.value}", **d.model_dump(by_alias=False))
+        for d in design_set.designs
+    ]
+    minimal = next(r for r in results if r.tier == Tier.MINIMAL_COST)
+    explanation = await explain_node(req, minimal, "app_db", provider=provider, settings=settings)
+    dump = lambda m: m.model_dump(mode="json")  # noqa: E731
+
+    return {
+        "interview_questions": {
+            "questions": TypeAdapter(list[InterviewQuestion]).dump_python(
+                INTERVIEW_QUESTIONS, mode="json", by_alias=True
+            )
+        },
+        "create_design_request": {"answers": answers},
+        "design_job_accepted": dump(DesignJobAccepted(job_id=JOB_ID)),
+        "design_job_running": dump(
+            DesignJob(job_id=JOB_ID, status=JobStatus.RUNNING, designs=[minimal])
+        ),
+        "design_job_completed": dump(
+            DesignJob(job_id=JOB_ID, status=JobStatus.COMPLETED, designs=results)
+        ),
+        "operations_guide_minimal_cost": dump(minimal.operations_guide),
+        "node_explanation_app_db": dump(explanation),
+        "error_response": dump(
+            ErrorResponse(
+                code=ErrorCode.DESIGN_GENERATION_FAILED,
+                message="구성도를 만들지 못했어요. 잠시 후 다시 시도해 주세요.",
+                retryable=True,
+                request_id="req_demo",
+            )
+        ),
+    }
+
+
+if __name__ == "__main__":
+    for old in [*ROOT.glob("*.json"), *ROOT.glob("examples/*.json")]:
+        old.unlink()  # 이름이 바뀐 파일이 남지 않게 매번 새로 만든다
+    for name, (model, mode) in SCHEMAS.items():
+        write_json(ROOT / f"{name}.schema.json", model.model_json_schema(mode=mode))
+    for name, data in asyncio.run(build_examples()).items():
+        write_json(ROOT / "examples" / f"{name}.json", data)

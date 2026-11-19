@@ -1,0 +1,199 @@
+{
+  "title": "컨테이너 기반 확장형 구성",
+  "summary": "ALB 뒤에 ECS Fargate 컨테이너를 두 가용 영역에 나눠 실행하고, RDS Multi-AZ와 ElastiCache로 장애와 트래픽 증가에 대비합니다. 안정성은 가장 높지만 고정 비용과 운영 난이도도 가장 높습니다.",
+  "difficulty": {
+    "level": 3,
+    "reason": "컨테이너·네트워크·캐시를 함께 다뤄야 해서 인프라 경험이 필요해요."
+  },
+  "architecture": {
+    "nodes": [
+      {
+        "id": "users",
+        "serviceType": "users",
+        "label": "사용자",
+        "groupId": null,
+        "role": "브라우저로 모집 공고를 보고 지원서를 내는 사람",
+        "reason": "모든 요청이 시작되는 지점이에요.",
+        "usage": null
+      },
+      {
+        "id": "cdn",
+        "serviceType": "cloudfront",
+        "label": "CDN",
+        "groupId": null,
+        "role": "웹 화면 전달과 HTTPS 제공",
+        "reason": "정적 파일 캐시로 서버 부하와 전송 비용을 줄입니다.",
+        "usage": {
+          "monthlyRequests": 300000,
+          "dataTransferOutGb": 5
+        }
+      },
+      {
+        "id": "web_bucket",
+        "serviceType": "s3",
+        "label": "웹 화면 저장소",
+        "groupId": "region_seoul",
+        "role": "React 빌드 파일 보관",
+        "reason": "정적 파일 보관 비용이 매우 낮습니다.",
+        "usage": {
+          "storageGb": 1
+        }
+      },
+      {
+        "id": "lb",
+        "serviceType": "alb",
+        "label": "로드밸런서",
+        "groupId": "public_subnet",
+        "role": "요청을 여러 컨테이너에 나눠 전달하고 상태 확인",
+        "reason": "컨테이너가 하나 죽어도 다른 컨테이너로 자동으로 보내 서비스가 멈추지 않습니다.",
+        "usage": {
+          "hoursPerMonth": 730
+        }
+      },
+      {
+        "id": "nat",
+        "serviceType": "nat_gateway",
+        "label": "NAT 게이트웨이",
+        "groupId": "public_subnet",
+        "role": "프라이빗 서브넷 컨테이너의 외부 인터넷 접근",
+        "reason": "컨테이너를 외부에 노출하지 않으면서 외부 API 호출과 이미지 다운로드를 할 수 있습니다.",
+        "usage": {
+          "hoursPerMonth": 730,
+          "dataTransferOutGb": 10
+        }
+      },
+      {
+        "id": "app",
+        "serviceType": "ecs_fargate",
+        "label": "API 컨테이너",
+        "groupId": "private_subnet",
+        "role": "API 서버 컨테이너 실행(2개 이상)",
+        "reason": "서버를 직접 관리하지 않으면서 상시 실행되는 컨테이너로 콜드 스타트 없이 응답합니다.",
+        "usage": {
+          "instanceCount": 2,
+          "hoursPerMonth": 730,
+          "memoryMb": 1024
+        }
+      },
+      {
+        "id": "cache",
+        "serviceType": "elasticache",
+        "label": "캐시",
+        "groupId": "private_subnet",
+        "role": "자주 읽는 공고 목록 캐시",
+        "reason": "모집 기간에 같은 공고 조회가 몰릴 때 DB 부하를 줄입니다.",
+        "usage": {
+          "instanceType": "cache.t4g.micro",
+          "instanceCount": 1,
+          "hoursPerMonth": 730
+        }
+      },
+      {
+        "id": "app_db",
+        "serviceType": "rds",
+        "label": "PostgreSQL DB (Multi-AZ)",
+        "groupId": "private_subnet",
+        "role": "회원·공고·지원서 저장, 장애 시 자동 전환",
+        "reason": "한 가용 영역에 장애가 나도 대기 DB로 자동 전환되어 데이터와 서비스가 유지됩니다.",
+        "usage": {
+          "instanceType": "db.t4g.small",
+          "instanceCount": 1,
+          "storageGb": 50,
+          "hoursPerMonth": 730,
+          "multiAz": true
+        }
+      },
+      {
+        "id": "logs",
+        "serviceType": "cloudwatch",
+        "label": "로그·알람",
+        "groupId": "region_seoul",
+        "role": "컨테이너 로그, 지표, 알람",
+        "reason": "장애 감지와 오토스케일링 기준 지표를 제공합니다.",
+        "usage": null
+      }
+    ],
+    "edges": [
+      {
+        "from": "users",
+        "to": "cdn",
+        "label": "웹 접속 (HTTPS)"
+      },
+      {
+        "from": "cdn",
+        "to": "web_bucket",
+        "label": "정적 파일"
+      },
+      {
+        "from": "users",
+        "to": "lb",
+        "label": "API 요청"
+      },
+      {
+        "from": "lb",
+        "to": "app",
+        "label": null
+      },
+      {
+        "from": "app",
+        "to": "cache",
+        "label": "캐시 조회"
+      },
+      {
+        "from": "app",
+        "to": "app_db",
+        "label": "SQL"
+      },
+      {
+        "from": "app",
+        "to": "nat",
+        "label": "외부 API 호출"
+      },
+      {
+        "from": "app",
+        "to": "logs",
+        "label": "로그·지표"
+      }
+    ],
+    "groups": [
+      {
+        "id": "region_seoul",
+        "kind": "region",
+        "label": "서울 리전 (ap-northeast-2)",
+        "parentId": null
+      },
+      {
+        "id": "vpc_main",
+        "kind": "vpc",
+        "label": "VPC (10.0.0.0/16)",
+        "parentId": "region_seoul"
+      },
+      {
+        "id": "public_subnet",
+        "kind": "public_subnet",
+        "label": "퍼블릭 서브넷 (2개 AZ)",
+        "parentId": "vpc_main"
+      },
+      {
+        "id": "private_subnet",
+        "kind": "private_subnet",
+        "label": "프라이빗 서브넷 (2개 AZ)",
+        "parentId": "vpc_main"
+      }
+    ]
+  },
+  "pros": [
+    "가용 영역 장애에도 서비스 유지",
+    "콜드 스타트 없이 일정한 응답 속도",
+    "사용자 10만 명 규모까지 구조 변경 없이 확장"
+  ],
+  "cons": [
+    "ALB·NAT·Multi-AZ로 고정 비용이 높음",
+    "컨테이너·네트워크 지식이 필요해 AWS 경험이 없는 팀에는 부담"
+  ],
+  "budgetNote": "고정 비용이 커서 월 5만 원 예산을 넘을 가능성이 높습니다. 서비스가 성장한 뒤 전환을 권장합니다.",
+  "scalingPath": [
+    "사용자 1만 명: 현재 구성 그대로 태스크 수만 조정",
+    "사용자 10만 명: RDS 읽기 전용 복제본, CloudFront로 API 캐시 확대"
+  ]
+}
