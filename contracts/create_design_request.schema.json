@@ -49,6 +49,7 @@
           "$ref": "#/$defs/AwsExperience"
         },
         "dataStorage": {
+          "description": "해당하는 것 모두. 'none'은 단독으로만",
           "items": {
             "$ref": "#/$defs/DataStorageNeed"
           },
