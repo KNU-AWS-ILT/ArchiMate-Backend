@@ -17,55 +17,57 @@
 
 ## ⚙️ 백엔드 핵심 기능 (Key Feature)
 
-> API 명세는 **초안**입니다. 백엔드 2인 합의 후 확정합니다.
+> API 명세는 **초안**입니다. 프론트 명세(A~D)와 고도화 아키텍처 문서를 기준으로 맞췄고, 백엔드 2인·프론트 합의 후 확정합니다. (#6, #7)
+> JSON 필드명은 **camelCase**, 열거형 값은 소문자 snake_case, 에러 코드는 UPPER_SNAKE_CASE입니다.
 
 ### 1. 가이드형 요구사항 인터뷰 `AI 생성`
 
 * **기능 소개**
 
 > 빈 프롬프트 대신 고정 질문 7개(서비스 유형, 동시 사용자, 월 예산, AWS 경험, 저장 데이터, 트래픽 패턴, 가용성) + 자유 서술로 요구사항을 빠짐없이 수집합니다.
-> 답변은 `Requirements` 스키마로 검증된 뒤 3안 생성의 입력이 됩니다.
+> 질문 목록은 고정이라 API 없이 프론트가 [질문 예시](contracts/examples/interview_questions.json)를 상수로 씁니다. 답변은 3안 생성 요청의 `answers`로 보내고 `Requirements` 스키마로 검증합니다.
 
-* **API 명세**
-
-> `GET /api/v1/interview/questions` → 질문 목록 ([예시](contracts/examples/interview_questions.json))
-> `POST /api/v1/interviews` → 답변 제출 ([요청 예시](contracts/examples/interview_answers.json), [스키마](contracts/requirements.schema.json))
-
-### 2. AI 아키텍처 3안 생성 `AI 생성`
+### 2. AI 아키텍처 3안 생성 + 운영 절차 `AI 생성`
 
 * **기능 소개**
 
-> LLM이 요구사항을 **최소비용 / 균형 / 확장형** 3가지 아키텍처 JSON으로 변환합니다. 3안은 병렬로 생성합니다.
+> LLM이 요구사항을 **최소비용 / 균형 / 확장형** 3가지 아키텍처 JSON으로 변환하고, 안마다 **배포·운영 절차**까지 만듭니다. 3안은 병렬로 생성하고 **끝난 안부터** 저장해 화면에 보여 줍니다.
 > - 출력은 JSON 스키마로 강제하고, 스키마·의미 검증(노드 연결, 그룹 계층, 비용 계산 필수 항목)에 실패하면 오류 내용을 피드백으로 붙여 자동 재시도합니다.
-> - 노드마다 **왜 이 서비스인가 / 대안 / 주의점**을 한국어로 담고, 안마다 운영 난이도(1~5)와 성장 단계 로드맵을 제공합니다.
+> - 노드마다 역할과 **선택 이유 한 줄**을 담고, 안마다 운영 난이도(쉬움·보통·어려움), 장단점, 성장 로드맵(사용자 1만 → 10만 명)을 제공합니다.
 > - LLM은 **가격을 추정하지 않고** 월 사용량(`usage`)만 출력합니다. 금액은 비용 계산 기능이 공식 단가로 계산합니다.
-> - 일부 안만 실패하면 성공한 안을 반환하고, 실패한 안은 `failures`에 담습니다.
+> - 운영 절차는 초보자 기준으로 콘솔 경로를 안내하고, 예산 알람을 가장 먼저 설정하게 합니다.
 
 * **API 명세**
 
-> `POST /api/v1/interviews/{interviewId}/designs` → 3안 생성 요청 (동기/비동기 방식 협의 중)
-> `GET /api/v1/designs/{designId}` → 3안 결과 조회 ([응답 예시](contracts/examples/design_set.json), [스키마](contracts/design_set.schema.json))
+> `POST /api/v1/designs` → `202 { jobId }` ([요청 예시](contracts/examples/create_design_request.json), [응답 예시](contracts/examples/design_job_accepted.json))
+> `GET /api/v1/designs/jobs/{jobId}` → 진행 상태 + 끝난 안 ([생성 중](contracts/examples/design_job_running.json), [완료](contracts/examples/design_job_completed.json), [스키마](contracts/design_job.schema.json))
+> `GET /api/v1/designs/{designId}/guide` → 운영 절차 ([응답 예시](contracts/examples/operations_guide_minimal_cost.json), [스키마](contracts/operations_guide.schema.json))
 
-### 3. 월 비용 계산·Free Tier 판별 `API·비용`
+### 3. 노드 설명 `AI 생성`
+
+* **기능 소개**
+
+> 다이어그램에서 노드를 클릭하면 소형 모델이 **왜 이 서비스인가 / 대안 / 주의점**을 사용자 상황에 맞춰 설명합니다. 설명은 캐시해 두 번째부터 바로 보여 줍니다. 설명에는 요금 숫자를 넣지 않습니다.
+
+* **API 명세**
+
+> `GET /api/v1/designs/{designId}/nodes/{nodeId}/explanation` ([응답 예시](contracts/examples/node_explanation_app_db.json), [스키마](contracts/node_explanation.schema.json))
+
+### 4. 월 비용 계산·Free Tier 판별 `API·비용`
 
 * **기능 소개**
 
 > 3안의 노드별 사용량에 AWS 공식 단가를 적용해 월 예상 비용과 Free Tier 적용 여부를 계산합니다. (주요 서비스 8종: Lambda, S3, DynamoDB, RDS, EC2, CloudFront, API Gateway, ALB)
+> 단가는 매일 새벽 Price List API에서 동기화해 두고, 3안이 생성될 때마다 계산해 `monthlyCost`에 채웁니다.
 
 * **API 명세**
 
-> 작성 예정
+> 별도 API 없음. 3안 조회 응답의 `designs[].monthlyCost`, 노드 설명의 `monthlyCost`로 내려갑니다. (형식은 API·비용 파트에서 확정)
 
-### 4. 배포·운영 절차 안내 `AI 생성`
+### 공통: 에러 응답
 
-* **기능 소개**
-
-> 사용자가 고른 안에 대해 배포 순서, 비용 알람 설정, 장애 대응 체크리스트, 정기 점검 항목을 한국어로 생성합니다.
-> 3안을 미리 모두 생성하지 않고 **선택한 안만** 생성해 대기 시간과 LLM 호출을 줄입니다.
-
-* **API 명세**
-
-> `POST /api/v1/designs/{designId}/operations-guide` → body `{ "tier": "minimal_cost" }` ([응답 예시](contracts/examples/operations_guide_minimal_cost.json), [스키마](contracts/operations_guide.schema.json))
+> `{ code, message, retryable, requestId }` ([예시](contracts/examples/error_response.json), [스키마](contracts/error_response.schema.json))
+> 3안 생성은 비동기라 실패가 HTTP 에러가 아니라 작업 상태 `failed`와 `error`로 전달됩니다.
 
 ---
 
@@ -79,13 +81,15 @@
 
 > {시스템 아키텍처 백엔드 부분 이미지(1875x1044)}
 
+> 고도화 아키텍처 문서 기준 (서울 리전, VPC 없음)
+
 ```text
-사용자 → CloudFront + S3 (React)
-       → API Gateway
-            ├─ ④ 인터뷰·API Lambda ──────────→ DynamoDB (인터뷰·설계 결과)
-            ├─ ⑤ 설계 생성 Lambda ──→ Amazon Bedrock (Claude)
-            │        └─ JSON 스키마 검증·재시도 → DynamoDB
-            └─ ⑦ 비용 계산 Lambda ──→ AWS Price List API (단가)
+사용자 → CloudFront ─┬─ /      → S3 (React)
+                     └─ /api/* → API Gateway (Cognito 토큰 확인)
+                                   ├─ 설계 생성 Lambda ─→ Bedrock 설계용 모델 (3안 병렬 + 운영 절차)
+                                   │     접수 → jobId 응답 → 비동기 생성 → 월 비용 계산 → DynamoDB(designs)
+                                   └─ 노드 설명 Lambda ─→ Bedrock 소형 모델 → DynamoDB(explanations, 30일 캐시)
+EventBridge(매일) → 단가 동기화 Lambda → Price List API → DynamoDB(prices)
 공통: CloudWatch 로그·알람 / 배포: GitHub Actions → AWS CDK (인프라 레포)
 ```
 
@@ -114,22 +118,22 @@
 ```text
 ArchiMate-Backend/
 ├── src/archimate/
-│   ├── schemas/                  🤝 팀 계약: 인터뷰 답변, 아키텍처 JSON, 운영 절차 (Pydantic)
+│   ├── schemas/                  🤝 팀 계약: 인터뷰 답변, 아키텍처 JSON, 운영 절차, 노드 설명, API 응답 (Pydantic)
 │   ├── llm/                      🧠 AI 생성 로직 (실행 환경과 무관)
 │   │   ├── __init__.py               공개 API (다른 영역은 여기만 import)
 │   │   ├── interview.py              고정 인터뷰 질문, 답변 검증
 │   │   ├── prompts/                  시스템 프롬프트(.md), 프롬프트 조립
 │   │   ├── providers/                LLM 제공자: mock / gemini / claude(bedrock) + 데모 고정 응답
-│   │   ├── pipeline.py               3안 병렬 생성, 검증 → 피드백 → 재시도
+│   │   ├── pipeline.py               3안 병렬 생성(+운영 절차), 노드 설명, 검증 → 피드백 → 재시도
 │   │   ├── validation.py             의미 검증 (노드 연결, 그룹 계층, 필수 사용량)
 │   │   └── settings.py · errors.py   LLM 설정, 예외
-│   ├── api/                      💰 인터뷰 세션·결과 조회, 3안 비교 가공, 로컬 FastAPI 앱
-│   ├── pricing/                  💰 Price List API 연동, 월 비용·Free Tier 계산
-│   ├── storage/                  💰 DynamoDB 데이터 모델·리포지토리
+│   ├── api/                      💰 생성 작업·결과 조회, 3안 비교 가공, 로컬 FastAPI 앱
+│   ├── pricing/                  💰 단가 동기화(Price List API), 월 비용·Free Tier 계산
+│   ├── storage/                  💰 DynamoDB 데이터 모델·리포지토리 (designs, prices, explanations)
 │   └── handlers/                 Lambda 진입점 (이벤트 파싱·응답 변환만)
-│       ├── interview_api.py          💰 ④ 인터뷰·API Lambda
-│       ├── design_generation.py      🧠 ⑤ 설계 생성 Lambda
-│       └── cost_calculation.py       💰 ⑦ 비용 계산 Lambda
+│       ├── generate.py               🧠 설계 생성 Lambda (접수·비동기 생성·조회)
+│       ├── explain.py                🧠 노드 설명 Lambda
+│       └── sync_prices.py            💰 단가 동기화 Lambda
 ├── contracts/                    🤝 프론트 공유용 JSON Schema + examples/ (자동 생성)
 ├── tests/                        llm/ 🧠 · api/ pricing/ storage/ 💰 · handlers/ · contracts/ 🤝
 ├── scripts/
@@ -175,8 +179,9 @@ cp .env.example .env
 > API 서버는 API·비용 파트 구현 후 추가됩니다. 현재는 AI 생성 파이프라인을 단독으로 실행할 수 있습니다. (결과는 `out/`에 저장)
 
 ```shell
-python scripts/llm/try_generate.py --ops                   # 데모 시나리오 3안 + 운영 절차
+python scripts/llm/try_generate.py                         # 데모 시나리오 3안 + 운영 절차
 python scripts/llm/try_generate.py --tier minimal_cost     # 1안만 생성 (무료 한도 절약)
+python scripts/llm/try_generate.py --explain app_db        # 첫 번째 안의 노드 설명까지
 python scripts/export_contracts.py                         # 스키마 변경 시 contracts/ 갱신
 ruff check . && ruff format . && pytest                    # 린트·포맷·테스트
 ```
@@ -185,22 +190,26 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 
 ## 📋 API 구성
 
-> 초안 — 백엔드 2인 합의 후 확정
+> 초안 — 백엔드 2인·프론트 합의 후 확정 (#7). 요청·응답 모양은 `src/archimate/schemas/api.py`
 
 | HTTP Method | 경로 | 주요 기능 |
 | :---: | :--- | :--- |
-| `GET` | `/api/v1/interview/questions` | 가이드형 인터뷰 질문 목록 |
-| `POST` | `/api/v1/interviews` | 인터뷰 답변 제출 (세션 생성) |
-| `POST` | `/api/v1/interviews/{interviewId}/designs` | 3안 생성 요청 |
-| `GET` | `/api/v1/designs/{designId}` | 3안 + 월 비용 결과 조회 |
-| `POST` | `/api/v1/designs/{designId}/operations-guide` | 선택한 안의 배포·운영 절차 생성 |
+| `POST` | `/api/v1/designs` | 3안 생성 요청 → `202 { jobId }` |
+| `GET` | `/api/v1/designs/jobs/{jobId}` | 생성 진행 상태와 끝난 안 조회 (2~3초마다) |
+| `GET` | `/api/v1/designs/{designId}/guide` | 선택한 안의 배포·운영 절차 |
+| `GET` | `/api/v1/designs/{designId}/nodes/{nodeId}/explanation` | 노드 설명 (왜 이 서비스 / 대안 / 주의점) |
 
 ---
 
 ## 🗄️ 데이터베이스 구조
 
-> Amazon DynamoDB — API·비용 파트에서 설계 예정
-> 저장 대상: 인터뷰 세션(답변), 설계 결과(3안 `DesignSet` + 월 비용), 생성한 운영 절차
+> Amazon DynamoDB (온디맨드) — 세부 설계는 API·비용 파트
+
+| 테이블 | 키 | 내용 | 보존 |
+| :--- | :--- | :--- | :--- |
+| `designs` | userId / jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용 | 보존 + PITR |
+| `prices` | service / region#usageType | 서비스별 단가 | 매일 덮어쓰기 |
+| `explanations` | service / context | 노드 설명 캐시 | TTL 30일 |
 
 ---
 
@@ -211,12 +220,13 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | 환경 변수 | 설명 |
 | :--- | :--- |
 | `LLM_PROVIDER` | `mock`(기본, 고정 응답) / `gemini`(개발용 무료) / `bedrock`(최종) / `anthropic` |
-| `LLM_MODEL` | 사용할 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.8-flash`) |
+| `LLM_MODEL` | 설계용 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.8-flash`) |
+| `LLM_EXPLAIN_MODEL` | 노드 설명용 소형 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`) |
 | `LLM_MAX_VALIDATION_RETRIES` | 검증 실패 시 재시도 횟수 (기본 2) |
 | `LLM_REQUEST_TIMEOUT_S` | LLM 1회 호출 타임아웃(초, 기본 50) |
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
-| `AWS_REGION` | Bedrock 리전 (`LLM_PROVIDER=bedrock`일 때) |
+| `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
 
 ---
 
