@@ -102,7 +102,7 @@
 | **인증 / 보안** | IAM 최소 권한, 시크릿은 환경 변수로 주입 (`.env` 커밋 금지) |
 | **API 문서화** | JSON Schema + 예시 (`contracts/`), FastAPI OpenAPI |
 | **배포 / 인프라** | API Gateway, Lambda, DynamoDB, CloudWatch / AWS CDK (별도 인프라 레포) |
-| **기타** | LLM: Amazon Bedrock (Claude, 최종) · Google Gemini API (개발용 무료 티어) / 도구: uv, Ruff, pytest |
+| **기타** | LLM: Amazon Bedrock (Claude, 최종) · Google Gemini API (개발용 무료 티어) / 도구: pip, Ruff, pytest |
 
 ---
 
@@ -151,12 +151,13 @@ ArchiMate-Backend/
 
 ### 1. 프로젝트 클론 및 환경 설정
 
-> Python 패키지 매니저 [uv](https://docs.astral.sh/uv/)를 사용합니다. uv가 Python 3.12도 자동으로 설치합니다.
+> Python 3.12와 pip를 사용합니다. (`.python-version` 참고)
 
 ```shell
 git clone https://github.com/KNU-AWS-ILT/ArchiMate-Backend.git
 cd ArchiMate-Backend
-brew install uv        # 또는: curl -LsSf https://astral.sh/uv/install.sh | sh
+python3.12 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 ```
 
 ### 2. 의존성 설치 및 환경 변수 설정
@@ -165,7 +166,7 @@ brew install uv        # 또는: curl -LsSf https://astral.sh/uv/install.sh | sh
 > 실제 생성을 보려면 [Google AI Studio](https://aistudio.google.com/apikey)에서 키를 발급받아 `GEMINI_API_KEY`를 넣고 `LLM_PROVIDER=gemini`로 바꿉니다.
 
 ```shell
-uv sync
+pip install -e ".[dev]"
 cp .env.example .env
 ```
 
@@ -174,10 +175,10 @@ cp .env.example .env
 > API 서버는 API·비용 파트 구현 후 추가됩니다. 현재는 AI 생성 파이프라인을 단독으로 실행할 수 있습니다. (결과는 `out/`에 저장)
 
 ```shell
-uv run python scripts/llm/try_generate.py --ops                   # 데모 시나리오 3안 + 운영 절차
-uv run python scripts/llm/try_generate.py --tier minimal_cost     # 1안만 생성 (무료 한도 절약)
-uv run python scripts/export_contracts.py                         # 스키마 변경 시 contracts/ 갱신
-uv run ruff check . && uv run ruff format . && uv run pytest      # 린트·포맷·테스트
+python scripts/llm/try_generate.py --ops                   # 데모 시나리오 3안 + 운영 절차
+python scripts/llm/try_generate.py --tier minimal_cost     # 1안만 생성 (무료 한도 절약)
+python scripts/export_contracts.py                         # 스키마 변경 시 contracts/ 갱신
+ruff check . && ruff format . && pytest                    # 린트·포맷·테스트
 ```
 
 ---
@@ -224,7 +225,7 @@ uv run ruff check . && uv run ruff format . && uv run pytest      # 린트·포�
 > **협업 규칙**
 > - 자기 영역 폴더만 수정하고, 🤝 공동 영역(`schemas/`, `contracts/`, `pyproject.toml`, `.env.example`)은 두 사람 모두 리뷰합니다.
 > - 스키마를 바꾸면 `scripts/export_contracts.py`를 실행해 `contracts/` 변경도 같은 PR에 포함하고 프론트에 공유합니다.
-> - 의존성 추가는 별도 PR로 올립니다. (`pyproject.toml`·`uv.lock` 충돌 방지)
+> - 의존성 추가는 별도 PR로 올립니다. (`pyproject.toml` 충돌 방지)
 >
 > **브랜치·커밋**
 > - 브랜치: `feat/#이슈번호-설명`
