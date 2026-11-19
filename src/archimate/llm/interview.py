@@ -1,37 +1,36 @@
-"""가이드형 인터뷰 질문(고정) — 질문 id는 Requirements 필드명과 같다.
+"""가이드형 인터뷰 질문(고정) — 질문 id는 Requirements의 JSON 필드명(camelCase)과 같다.
 
-API 계층은 INTERVIEW_QUESTIONS를 그대로 JSON으로 내려주고,
-프론트가 보낸 답변 dict를 build_requirements()로 검증하면 된다.
+질문 목록은 API 없이 contracts/examples/interview_questions.json을 프론트가 상수로 쓴다(Issue #7 A).
+프론트가 보낸 answers는 build_requirements()로 검증한다.
 문구 수정은 PM과 협의(시나리오 5종과 맞물림).
 """
 
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel
-
+from archimate.schemas.base import CamelModel
 from archimate.schemas.requirements import (
     AvailabilityNeed,
+    AwsExperience,
     DataStorageNeed,
     Requirements,
     ServiceType,
-    TeamExperience,
     TrafficPattern,
     UserScale,
 )
 
 
-class InterviewOption(BaseModel):
+class InterviewOption(CamelModel):
     value: str
     label: str
     description: str | None = None
 
 
-class InterviewQuestion(BaseModel):
+class InterviewQuestion(CamelModel):
     id: str
-    title: str
-    description: str | None = None
-    input_type: Literal["single_choice", "multi_choice", "number", "text"]
+    text: str
+    help: str | None = None
+    input_type: Literal["single", "multi", "number", "text"]
     options: list[InterviewOption] = []
     required: bool = True
     unit: str | None = None
@@ -49,9 +48,9 @@ def _opts(
 
 INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
     InterviewQuestion(
-        id="service_type",
-        title="어떤 서비스인가요?",
-        input_type="single_choice",
+        id="serviceType",
+        text="어떤 서비스인가요?",
+        input_type="single",
         options=_opts(
             ServiceType,
             {
@@ -68,10 +67,10 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
         ),
     ),
     InterviewQuestion(
-        id="concurrent_users",
-        title="동시에 몇 명 정도 접속할까요?",
-        description="가장 붐비는 순간을 기준으로 골라 주세요.",
-        input_type="single_choice",
+        id="concurrentUsers",
+        text="동시에 몇 명 정도 접속할까요?",
+        help="가장 붐비는 순간을 기준으로 골라 주세요.",
+        input_type="single",
         options=_opts(
             UserScale,
             {
@@ -83,32 +82,32 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
         ),
     ),
     InterviewQuestion(
-        id="monthly_budget_krw",
-        title="한 달 인프라 예산은 얼마인가요?",
-        description="0원이면 AWS Free Tier 안에서만 설계합니다.",
+        id="monthlyBudget",
+        text="한 달 인프라 예산은 얼마인가요?",
+        help="0원이면 AWS Free Tier 안에서만 설계합니다.",
         input_type="number",
-        unit="원",
+        unit="KRW",
         placeholder="50000",
     ),
     InterviewQuestion(
-        id="team_experience",
-        title="AWS를 얼마나 다뤄 봤나요?",
-        input_type="single_choice",
+        id="awsExperience",
+        text="AWS를 얼마나 다뤄 봤나요?",
+        input_type="single",
         options=_opts(
-            TeamExperience,
+            AwsExperience,
             {
-                TeamExperience.NONE: ("처음이에요", "AWS 콘솔에 들어가 본 적이 없음"),
-                TeamExperience.BEGINNER: ("조금 써 봤어요", "튜토리얼로 몇 개 만들어 봄"),
-                TeamExperience.INTERMEDIATE: ("배포해 봤어요", "직접 서비스를 올리고 운영해 봄"),
-                TeamExperience.ADVANCED: ("익숙해요", "인프라를 담당해 본 경험이 있음"),
+                AwsExperience.NONE: ("처음이에요", "AWS 콘솔에 들어가 본 적이 없음"),
+                AwsExperience.BEGINNER: ("조금 써 봤어요", "튜토리얼로 몇 개 만들어 봄"),
+                AwsExperience.INTERMEDIATE: ("배포해 봤어요", "직접 서비스를 올리고 운영해 봄"),
+                AwsExperience.ADVANCED: ("익숙해요", "인프라를 담당해 본 경험이 있음"),
             },
         ),
     ),
     InterviewQuestion(
-        id="data_storage",
-        title="어떤 데이터를 저장하나요?",
-        description="해당하는 것을 모두 골라 주세요.",
-        input_type="multi_choice",
+        id="dataStorage",
+        text="어떤 데이터를 저장하나요?",
+        help="해당하는 것을 모두 골라 주세요.",
+        input_type="multi",
         options=_opts(
             DataStorageNeed,
             {
@@ -123,9 +122,9 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
         ),
     ),
     InterviewQuestion(
-        id="traffic_pattern",
-        title="접속은 언제 몰리나요?",
-        input_type="single_choice",
+        id="trafficPattern",
+        text="접속은 언제 몰리나요?",
+        input_type="single",
         options=_opts(
             TrafficPattern,
             {
@@ -138,8 +137,8 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
     ),
     InterviewQuestion(
         id="availability",
-        title="서비스가 잠깐 멈추면 얼마나 곤란한가요?",
-        input_type="single_choice",
+        text="서비스가 잠깐 멈추면 얼마나 곤란한가요?",
+        input_type="single",
         options=_opts(
             AvailabilityNeed,
             {
@@ -150,9 +149,9 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
         ),
     ),
     InterviewQuestion(
-        id="free_text",
-        title="서비스를 자유롭게 설명해 주세요",
-        description="주요 기능, 사용하는 언어·프레임워크, 걱정되는 점 등",
+        id="freeText",
+        text="서비스를 자유롭게 설명해 주세요",
+        help="주요 기능, 사용하는 언어·프레임워크, 걱정되는 점 등",
         input_type="text",
         required=False,
         placeholder="예: Next.js로 만든 동아리 모집 사이트예요. 지원서 PDF 업로드가 있어요.",
@@ -160,8 +159,13 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
 ]
 
 
+assert [q.id for q in INTERVIEW_QUESTIONS] == [
+    f.alias for f in Requirements.model_fields.values()
+], "인터뷰 질문 id와 Requirements 필드가 어긋났습니다"
+
+
 def build_requirements(answers: dict[str, Any]) -> Requirements:
-    """프론트 답변 → Requirements. 실패 시 pydantic.ValidationError (API 계층에서 400 처리)."""
+    """프론트 answers(camelCase) → Requirements. 실패 시 pydantic.ValidationError (400 INVALID_REQUEST)."""
     return Requirements.model_validate(answers)
 
 

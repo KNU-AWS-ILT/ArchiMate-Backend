@@ -5,8 +5,9 @@ from archimate.llm.providers.base import LLMProvider
 from archimate.llm.settings import LLMSettings
 
 
-def build_provider(settings: LLMSettings) -> LLMProvider:
-    model = settings.resolved_model
+def build_provider(settings: LLMSettings, *, model: str | None = None) -> LLMProvider:
+    """model을 주면 설정의 설계용 모델 대신 그 모델을 쓴다 (노드 설명용 소형 모델 등)."""
+    model = model or settings.resolved_model
     match settings.provider:
         case "mock":
             from archimate.llm.providers.mock import MockProvider

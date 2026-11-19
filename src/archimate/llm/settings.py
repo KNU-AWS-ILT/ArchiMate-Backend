@@ -17,6 +17,14 @@ DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-opus-5-5",
 }
 
+# 노드 설명용 소형 모델 (고도화 문서 5장: 속도·비용 우선)
+DEFAULT_EXPLAIN_MODELS: dict[str, str] = {
+    "mock": "mock",
+    "gemini": "gemini-3.5-flash-lite",
+    "bedrock": "anthropic.claude-haiku-5-5",
+    "anthropic": "claude-haiku-5-5",
+}
+
 
 class LLMSettings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -24,7 +32,10 @@ class LLMSettings(BaseSettings):
     )
 
     provider: ProviderName = "mock"
-    model: str | None = Field(default=None, description="비우면 제공자별 기본 모델")
+    model: str | None = Field(default=None, description="설계용 모델. 비우면 제공자별 기본 모델")
+    explain_model: str | None = Field(
+        default=None, description="노드 설명용 소형 모델. 비우면 제공자별 기본 모델"
+    )
     max_validation_retries: int = Field(default=2, ge=0, le=5)
     request_timeout_s: float = Field(default=50.0, gt=0)
     max_output_tokens: int = Field(default=16_000, gt=0)
@@ -35,12 +46,16 @@ class LLMSettings(BaseSettings):
         default=None, validation_alias=AliasChoices("GEMINI_API_KEY", "LLM_GEMINI_API_KEY")
     )
     aws_region: str = Field(
-        default="us-east-1", validation_alias=AliasChoices("AWS_REGION", "LLM_AWS_REGION")
+        default="ap-northeast-2", validation_alias=AliasChoices("AWS_REGION", "LLM_AWS_REGION")
     )
 
     @property
     def resolved_model(self) -> str:
         return self.model or DEFAULT_MODELS[self.provider]
+
+    @property
+    def resolved_explain_model(self) -> str:
+        return self.explain_model or DEFAULT_EXPLAIN_MODELS[self.provider]
 
 
 @lru_cache

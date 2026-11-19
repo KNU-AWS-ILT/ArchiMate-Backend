@@ -1,7 +1,8 @@
 """LLM 생성 파이프라인 — 이 모듈의 공개 함수가 백엔드 API 계층과의 경계다.
 
-    generate_designs(req)               → DesignSet   (3안 병렬 생성)
-    generate_operations_guide(req, d)   → OperationsGuide
+    generate_designs(req, on_tier_done=...)  → DesignSet  (3안 병렬 생성, 안마다 운영 절차 포함)
+    explain_node(req, design, node_id)       → NodeExplanation  (노드 설명, 소형 모델)
+    generate_operations_guide(req, d)        → OperationsGuide  (운영 절차만 다시 만들 때)
 
 흐름: 프롬프트 조립 → 제공자 호출(JSON) → Pydantic 검증 → 의미 검증
       → 실패 시 에러 목록을 피드백으로 붙여 재시도 (최대 LLM_MAX_VALIDATION_RETRIES회)
@@ -10,7 +11,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -25,11 +26,16 @@ from archimate.llm.errors import (
 )
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
-from archimate.llm.validation import check_design, check_operations_guide
+from archimate.llm.validation import check_design, check_explanation, check_operations_guide
 from archimate.schemas import (
+    SERVICE_INFO,
+    Alternative,
+    AwsService,
     Design,
     DesignDraft,
     DesignSet,
+    ExplanationDraft,
+    NodeExplanation,
     OperationsGuide,
     Requirements,
     Tier,
@@ -107,14 +113,24 @@ def _resolve(
 
 
 _default_provider: LLMProvider | None = None
+_explain_provider: LLMProvider | None = None
 
 
 def get_default_provider() -> LLMProvider:
-    """설정 기반 제공자 싱글턴 (Lambda 웜 스타트 때 클라이언트 재사용)."""
+    """설계용 제공자 싱글턴 (Lambda 웜 스타트 때 클라이언트 재사용)."""
     global _default_provider
     if _default_provider is None:
         _default_provider = build_provider(get_settings())
     return _default_provider
+
+
+def get_explain_provider() -> LLMProvider:
+    """노드 설명용 소형 모델 제공자 싱글턴."""
+    global _explain_provider
+    if _explain_provider is None:
+        settings = get_settings()
+        _explain_provider = build_provider(settings, model=settings.resolved_explain_model)
+    return _explain_provider
 
 
 async def generate_design(
@@ -134,7 +150,29 @@ async def generate_design(
         check=check_design,
         label=f"design:{tier.value}",
     )
-    return Design(tier=tier, **draft.model_dump())
+    return Design(tier=tier, **draft.model_dump(by_alias=False))
+
+
+async def _generate_tier(
+    req: Requirements,
+    tier: Tier,
+    provider: LLMProvider,
+    settings: LLMSettings,
+    on_tier_done: Callable[[Design], Awaitable[None]] | None,
+) -> Design:
+    """1안 = 설계 → 운영 절차. 운영 절차가 실패해도 설계는 살린다(operationsGuide=null)."""
+    design = await generate_design(req, tier, provider=provider, settings=settings)
+    try:
+        design.operations_guide = await generate_operations_guide(
+            req, design, provider=provider, settings=settings
+        )
+    except LLMConfigError:
+        raise
+    except LLMError as e:
+        logger.error("llm.guide_failed tier=%s code=%s err=%s", tier.value, e.code, e)
+    if on_tier_done is not None:
+        await on_tier_done(design)
+    return design
 
 
 async def generate_designs(
@@ -143,11 +181,16 @@ async def generate_designs(
     tiers: Sequence[Tier] = tuple(Tier),
     provider: LLMProvider | None = None,
     settings: LLMSettings | None = None,
+    on_tier_done: Callable[[Design], Awaitable[None]] | None = None,
 ) -> DesignSet:
-    """3안을 병렬로 생성. 일부 실패는 failures에 담고, 전부 실패하면 예외."""
+    """3안을 병렬로 생성. 일부 실패는 failures에 담고, 전부 실패하면 예외.
+
+    on_tier_done: 안 하나가 끝날 때마다 호출된다. 비용 계산·저장을 여기서 하면
+    프론트가 끝난 안부터 볼 수 있다(고도화 문서 4장 ④-2).
+    """
     provider, settings = _resolve(provider, settings)
     results = await asyncio.gather(
-        *(generate_design(req, t, provider=provider, settings=settings) for t in tiers),
+        *(_generate_tier(req, t, provider, settings, on_tier_done) for t in tiers),
         return_exceptions=True,
     )
 
@@ -183,6 +226,57 @@ async def generate_operations_guide(
         system=prompts.operations_system_prompt(),
         user=prompts.operations_user_prompt(req, design),
         output_model=OperationsGuide,
-        check=check_operations_guide,
+        check=lambda g: check_operations_guide(g, design.architecture),
         label=f"operations:{design.tier.value}",
+    )
+
+
+async def explain_node(
+    req: Requirements,
+    design: Design,
+    node_id: str,
+    *,
+    provider: LLMProvider | None = None,
+    settings: LLMSettings | None = None,
+) -> NodeExplanation:
+    """노드 클릭 시 설명(D). 캐시 확인·저장과 monthlyCost는 호출하는 쪽(핸들러)이 한다.
+
+    없는 노드나 사용자 노드면 ValueError (API에서 404 NOT_FOUND).
+    """
+    node = next((n for n in design.architecture.nodes if n.id == node_id), None)
+    if node is None or node.service_type == AwsService.USERS:
+        raise ValueError(f"설명할 수 있는 노드가 아닙니다: {node_id}")
+
+    if settings is None:
+        settings = get_settings()
+        provider = provider or get_explain_provider()
+    else:
+        provider = provider or build_provider(settings, model=settings.resolved_explain_model)
+
+    draft = await _generate_validated(
+        provider,
+        settings,
+        system=prompts.explain_system_prompt(),
+        user=prompts.explain_user_prompt(req, design, node),
+        output_model=ExplanationDraft,
+        check=lambda e: check_explanation(e, node.service_type),
+        label=f"explain:{design.tier.value}:{node.id}",
+    )
+    name, category = SERVICE_INFO[node.service_type]
+    return NodeExplanation(
+        node_id=node.id,
+        service_type=node.service_type,
+        name=name,
+        category=category,
+        role=node.role,
+        reason=draft.reason,
+        alternatives=[
+            Alternative(
+                service_type=a.service_type,
+                name=SERVICE_INFO[a.service_type][0],
+                comparison=a.comparison,
+            )
+            for a in draft.alternatives
+        ],
+        cautions=draft.cautions,
     )

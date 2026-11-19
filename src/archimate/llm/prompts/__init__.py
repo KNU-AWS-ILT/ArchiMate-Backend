@@ -9,7 +9,7 @@ from functools import cache
 from importlib import resources
 
 from archimate.llm.interview import option_label
-from archimate.schemas import Design, Requirements, Tier
+from archimate.schemas import SERVICE_INFO, AwsService, Design, Node, Requirements, Tier
 
 TIER_GUIDES: dict[Tier, str] = {
     Tier.MINIMAL_COST: (
@@ -22,7 +22,7 @@ TIER_GUIDES: dict[Tier, str] = {
     ),
     Tier.SCALABLE: (
         "확장형안. 사용자 10만 명까지 구조 변경 없이 늘릴 수 있고 가용 영역 장애에 견디는 구성. "
-        "예산을 넘을 수 있으며, 그 경우 budget_note에 분명히 적습니다."
+        "예산을 넘을 수 있으며, 그 경우 budgetNote에 분명히 적습니다."
     ),
 }
 
@@ -40,14 +40,18 @@ def operations_system_prompt() -> str:
     return _load("operations_system.md")
 
 
+def explain_system_prompt() -> str:
+    return _load("explain_system.md")
+
+
 def render_requirements(req: Requirements) -> str:
     lines = [
-        f"- 서비스 유형: {option_label('service_type', req.service_type)}",
-        f"- 동시 사용자: {option_label('concurrent_users', req.concurrent_users)}",
-        f"- 월 예산: {req.monthly_budget_krw:,}원",
-        f"- AWS 경험: {option_label('team_experience', req.team_experience)}",
-        "- 저장 데이터: " + ", ".join(option_label("data_storage", d) for d in req.data_storage),
-        f"- 트래픽 패턴: {option_label('traffic_pattern', req.traffic_pattern)}",
+        f"- 서비스 유형: {option_label('serviceType', req.service_type)}",
+        f"- 동시 사용자: {option_label('concurrentUsers', req.concurrent_users)}",
+        f"- 월 예산: {req.monthly_budget:,}원",
+        f"- AWS 경험: {option_label('awsExperience', req.aws_experience)}",
+        "- 저장 데이터: " + ", ".join(option_label("dataStorage", d) for d in req.data_storage),
+        f"- 트래픽 패턴: {option_label('trafficPattern', req.traffic_pattern)}",
         f"- 가용성 요구: {option_label('availability', req.availability)}",
     ]
     body = "\n".join(lines)
@@ -67,10 +71,29 @@ def design_user_prompt(req: Requirements, tier: Tier) -> str:
 
 
 def operations_user_prompt(req: Requirements, design: Design) -> str:
+    body = design.model_dump_json(exclude_none=True, exclude={"operations_guide"})
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
-        f"<selected_design>\n{design.model_dump_json(exclude_none=True)}\n</selected_design>\n\n"
-        "사용자가 위 안을 선택했습니다. 이 안의 배포·운영 절차를 스키마에 맞춰 작성하세요."
+        f"<tier>{design.tier.value}</tier>\n"
+        f"<design>\n{body}\n</design>\n\n"
+        "위 설계를 실제로 배포하고 운영하는 절차를 스키마에 맞춰 작성하세요."
+    )
+
+
+def explain_user_prompt(req: Requirements, design: Design, node: Node) -> str:
+    others = ", ".join(
+        f"{n.label}({n.service_type.value})"
+        for n in design.architecture.nodes
+        if n.id != node.id and n.service_type != AwsService.USERS
+    )
+    name = SERVICE_INFO[node.service_type][0]
+    return (
+        f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
+        f'<design tier="{design.tier.value}">{design.title} — {design.summary}\n'
+        f"함께 쓰는 서비스: {others}</design>\n\n"
+        f"<node>\n- 서비스: {name} ({node.service_type.value})\n- 이름: {node.label}\n"
+        f"- 역할: {node.role}\n- 설계 때 적은 선택 이유: {node.reason}\n</node>\n\n"
+        "이 노드에 대해 사용자가 '왜 이 서비스인가, 대안은 무엇인가'를 물었습니다. 스키마에 맞춰 답하세요."
     )
 
 

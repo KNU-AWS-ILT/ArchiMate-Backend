@@ -1,96 +1,177 @@
 {
   "title": "서버리스 + 관계형 DB 균형 구성",
   "summary": "API는 Lambda로 유지하되 데이터는 익숙한 SQL을 쓸 수 있는 RDS(PostgreSQL)에 저장합니다. 로그인은 Cognito로 처리해 직접 인증을 구현하지 않아도 됩니다.",
-  "groups": [
-    {"id": "region_seoul", "kind": "region", "label": "서울 리전 (ap-northeast-2)", "parent_id": null},
-    {"id": "vpc_main", "kind": "vpc", "label": "VPC (10.0.0.0/16)", "parent_id": "region_seoul"},
-    {"id": "private_a", "kind": "private_subnet", "label": "프라이빗 서브넷", "parent_id": "vpc_main"}
+  "difficulty": {
+    "level": 2,
+    "reason": "관계형 DB와 VPC 설정을 이해해야 해서 최소비용안보다 손이 조금 더 가요."
+  },
+  "architecture": {
+    "nodes": [
+      {
+        "id": "users",
+        "serviceType": "users",
+        "label": "사용자",
+        "groupId": null,
+        "role": "브라우저로 모집 공고를 보고 지원서를 내는 사람",
+        "reason": "모든 요청이 시작되는 지점이에요.",
+        "usage": null
+      },
+      {
+        "id": "cdn",
+        "serviceType": "cloudfront",
+        "label": "CDN",
+        "groupId": null,
+        "role": "웹 화면 전달과 HTTPS 제공",
+        "reason": "정적 파일을 캐시해 빠르고 저렴하게 전달합니다.",
+        "usage": {
+          "monthlyRequests": 300000,
+          "dataTransferOutGb": 5
+        }
+      },
+      {
+        "id": "web_bucket",
+        "serviceType": "s3",
+        "label": "웹 화면 저장소",
+        "groupId": "region_seoul",
+        "role": "React 빌드 파일 보관",
+        "reason": "정적 파일 보관 비용이 매우 낮습니다.",
+        "usage": {
+          "storageGb": 1
+        }
+      },
+      {
+        "id": "auth",
+        "serviceType": "cognito",
+        "label": "회원 인증",
+        "groupId": "region_seoul",
+        "role": "회원가입·로그인·토큰 발급",
+        "reason": "비밀번호 저장과 토큰 관리를 직접 구현하지 않아도 되어 보안 사고 위험이 줄어듭니다.",
+        "usage": null
+      },
+      {
+        "id": "api_gw",
+        "serviceType": "api_gateway",
+        "label": "API 입구",
+        "groupId": "region_seoul",
+        "role": "API 요청 수신과 토큰 검증",
+        "reason": "Cognito 토큰 검증을 설정만으로 붙일 수 있습니다.",
+        "usage": {
+          "monthlyRequests": 200000
+        }
+      },
+      {
+        "id": "api_lambda",
+        "serviceType": "lambda",
+        "label": "API 처리 함수",
+        "groupId": "private_a",
+        "role": "비즈니스 로직 실행과 DB 접근",
+        "reason": "서버 관리 없이 API를 운영하면서 VPC 안의 RDS에 안전하게 접근합니다.",
+        "usage": {
+          "monthlyRequests": 200000,
+          "avgDurationMs": 300,
+          "memoryMb": 512
+        }
+      },
+      {
+        "id": "app_db",
+        "serviceType": "rds",
+        "label": "PostgreSQL DB",
+        "groupId": "private_a",
+        "role": "회원·공고·지원서 저장",
+        "reason": "SQL로 자유롭게 조회할 수 있고 바이브 코딩 도구가 만든 ORM 코드를 그대로 쓸 수 있습니다.",
+        "usage": {
+          "instanceType": "db.t4g.micro",
+          "instanceCount": 1,
+          "storageGb": 20,
+          "hoursPerMonth": 730,
+          "multiAz": false
+        }
+      },
+      {
+        "id": "logs",
+        "serviceType": "cloudwatch",
+        "label": "로그·알람",
+        "groupId": "region_seoul",
+        "role": "로그 수집과 오류·비용 알람",
+        "reason": "장애 원인 추적과 알람을 한 곳에서 관리합니다.",
+        "usage": null
+      }
+    ],
+    "edges": [
+      {
+        "from": "users",
+        "to": "cdn",
+        "label": "웹 접속 (HTTPS)"
+      },
+      {
+        "from": "cdn",
+        "to": "web_bucket",
+        "label": "정적 파일"
+      },
+      {
+        "from": "users",
+        "to": "auth",
+        "label": "로그인"
+      },
+      {
+        "from": "users",
+        "to": "api_gw",
+        "label": "API 요청 (토큰)"
+      },
+      {
+        "from": "api_gw",
+        "to": "auth",
+        "label": "토큰 검증"
+      },
+      {
+        "from": "api_gw",
+        "to": "api_lambda",
+        "label": null
+      },
+      {
+        "from": "api_lambda",
+        "to": "app_db",
+        "label": "SQL"
+      },
+      {
+        "from": "api_lambda",
+        "to": "logs",
+        "label": "로그"
+      }
+    ],
+    "groups": [
+      {
+        "id": "region_seoul",
+        "kind": "region",
+        "label": "서울 리전 (ap-northeast-2)",
+        "parentId": null
+      },
+      {
+        "id": "vpc_main",
+        "kind": "vpc",
+        "label": "VPC (10.0.0.0/16)",
+        "parentId": "region_seoul"
+      },
+      {
+        "id": "private_a",
+        "kind": "private_subnet",
+        "label": "프라이빗 서브넷",
+        "parentId": "vpc_main"
+      }
+    ]
+  },
+  "pros": [
+    "익숙한 SQL과 ORM 사용 가능",
+    "회원 인증을 관리형 서비스로 해결",
+    "서버 관리 부담이 여전히 낮음"
   ],
-  "nodes": [
-    {
-      "id": "cdn", "service": "cloudfront", "label": "CDN", "group_id": null,
-      "role": "웹 화면 전달과 HTTPS 제공",
-      "rationale": {
-        "why": "정적 파일을 캐시해 빠르고 저렴하게 전달합니다.",
-        "alternatives": [{"service": "s3", "reason": "S3 단독 호스팅은 HTTPS 설정이 어렵습니다."}],
-        "cautions": ["배포 후 캐시 무효화를 잊지 마세요."]
-      },
-      "usage": {"monthly_requests": 300000, "data_transfer_out_gb": 5}
-    },
-    {
-      "id": "web_bucket", "service": "s3", "label": "웹 화면 저장소", "group_id": "region_seoul",
-      "role": "React 빌드 파일 보관",
-      "rationale": {
-        "why": "정적 파일 보관 비용이 매우 낮습니다.",
-        "alternatives": [],
-        "cautions": ["퍼블릭 접근 차단을 유지하세요."]
-      },
-      "usage": {"storage_gb": 1}
-    },
-    {
-      "id": "auth", "service": "cognito", "label": "회원 인증", "group_id": "region_seoul",
-      "role": "회원가입·로그인·토큰 발급",
-      "rationale": {
-        "why": "비밀번호 저장과 토큰 관리를 직접 구현하지 않아도 되어 보안 사고 위험이 줄어듭니다.",
-        "alternatives": [],
-        "cautions": ["사용자 풀 설정 일부는 생성 후 바꿀 수 없으니 처음에 신중히 정하세요."]
-      },
-      "usage": {}
-    },
-    {
-      "id": "api_gw", "service": "api_gateway", "label": "API 입구", "group_id": "region_seoul",
-      "role": "API 요청 수신과 토큰 검증",
-      "rationale": {
-        "why": "Cognito 토큰 검증을 설정만으로 붙일 수 있습니다.",
-        "alternatives": [{"service": "alb", "reason": "트래픽이 적을 땐 ALB 고정 비용이 부담입니다."}],
-        "cautions": ["스로틀링 한도를 설정하세요."]
-      },
-      "usage": {"monthly_requests": 200000}
-    },
-    {
-      "id": "api_lambda", "service": "lambda", "label": "API 처리 함수", "group_id": "private_a",
-      "role": "비즈니스 로직 실행과 DB 접근",
-      "rationale": {
-        "why": "서버 관리 없이 API를 운영하면서 VPC 안의 RDS에 안전하게 접근합니다.",
-        "alternatives": [{"service": "ecs_fargate", "reason": "DB 연결을 오래 유지해야 하면 컨테이너가 유리합니다."}],
-        "cautions": ["VPC 안 Lambda는 외부 인터넷에 나가려면 NAT Gateway가 필요하고 이는 큰 고정 비용입니다.", "DB 연결 수가 늘면 RDS Proxy를 검토하세요."]
-      },
-      "usage": {"monthly_requests": 200000, "avg_duration_ms": 300, "memory_mb": 512}
-    },
-    {
-      "id": "app_db", "service": "rds", "label": "PostgreSQL DB", "group_id": "private_a",
-      "role": "회원·공고·지원서 저장",
-      "rationale": {
-        "why": "SQL로 자유롭게 조회할 수 있고 바이브 코딩 도구가 만든 ORM 코드를 그대로 쓸 수 있습니다.",
-        "alternatives": [{"service": "dynamodb", "reason": "더 싸지만 조회 패턴을 미리 설계해야 합니다."}],
-        "cautions": ["자동 백업 보관 기간을 7일 이상으로 설정하세요.", "인스턴스는 꺼 두어도 스토리지 비용이 나옵니다."]
-      },
-      "usage": {"instance_type": "db.t4g.micro", "instance_count": 1, "storage_gb": 20, "hours_per_month": 730, "multi_az": false}
-    },
-    {
-      "id": "logs", "service": "cloudwatch", "label": "로그·알람", "group_id": "region_seoul",
-      "role": "로그 수집과 오류·비용 알람",
-      "rationale": {
-        "why": "장애 원인 추적과 알람을 한 곳에서 관리합니다.",
-        "alternatives": [],
-        "cautions": ["로그 보관 기간을 설정하세요."]
-      },
-      "usage": {}
-    }
+  "cons": [
+    "RDS 때문에 트래픽이 없어도 월 고정 비용 발생",
+    "VPC 구성으로 설정 난이도가 조금 올라감"
   ],
-  "edges": [
-    {"source": "user", "target": "cdn", "label": "웹 접속 (HTTPS)"},
-    {"source": "cdn", "target": "web_bucket", "label": "정적 파일"},
-    {"source": "user", "target": "auth", "label": "로그인"},
-    {"source": "user", "target": "api_gw", "label": "API 요청 (토큰)"},
-    {"source": "api_gw", "target": "auth", "label": "토큰 검증"},
-    {"source": "api_gw", "target": "api_lambda", "label": null},
-    {"source": "api_lambda", "target": "app_db", "label": "SQL"},
-    {"source": "api_lambda", "target": "logs", "label": "로그"}
-  ],
-  "operation_difficulty": 2,
-  "pros": ["익숙한 SQL과 ORM 사용 가능", "회원 인증을 관리형 서비스로 해결", "서버 관리 부담이 여전히 낮음"],
-  "cons": ["RDS 때문에 트래픽이 없어도 월 고정 비용 발생", "VPC 구성으로 설정 난이도가 조금 올라감"],
-  "budget_note": "RDS 고정 비용이 생기지만 월 5만 원 예산 안에서 여유 있게 운영할 수 있는 수준입니다.",
-  "scaling_path": ["사용자 1만 명: RDS Proxy 도입, 인스턴스 한 단계 상향", "사용자 10만 명: RDS Multi-AZ 전환과 읽기 전용 복제본 추가"]
+  "budgetNote": "RDS 고정 비용이 생기지만 월 5만 원 예산 안에서 여유 있게 운영할 수 있는 수준입니다.",
+  "scalingPath": [
+    "사용자 1만 명: RDS Proxy 도입, 인스턴스 한 단계 상향",
+    "사용자 10만 명: RDS Multi-AZ 전환과 읽기 전용 복제본 추가"
+  ]
 }

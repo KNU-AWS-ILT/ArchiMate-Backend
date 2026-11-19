@@ -1,12 +1,16 @@
-"""LLM 모듈 예외. API 계층(백엔드 담당)은 이 예외만 잡아 HTTP 에러로 매핑하면 된다.
+"""LLM 모듈 예외. API 계층은 이 예외만 잡아 ErrorResponse(schemas.api)로 바꾸면 된다.
 
-권장 매핑 (팀 합의 필요):
-    LLMConfigError        → 500 LLM_CONFIG_ERROR
-    LLMRateLimitError     → 429 LLM_RATE_LIMITED
-    LLMTimeoutError       → 504 LLM_TIMEOUT
-    LLMOutputError        → 502 LLM_INVALID_OUTPUT
-    LLMProviderError      → 502 LLM_PROVIDER_ERROR
-    AllTiersFailedError   → 502 DESIGN_GENERATION_FAILED
+권장 매핑 (Issue #7 합의 필요). code는 schemas.api.ErrorCode 값.
+    예외                    code                       retryable  노드 설명(동기) HTTP
+    LLMConfigError        → INTERNAL_ERROR             false      500
+    LLMRateLimitError     → RATE_LIMITED               true       429
+    LLMTimeoutError       → LLM_TIMEOUT                true       504
+    LLMOutputError        → DESIGN_GENERATION_FAILED   true       502 (노드 설명은 EXPLANATION_FAILED)
+    LLMProviderError      → DESIGN_GENERATION_FAILED   true       502 (노드 설명은 EXPLANATION_FAILED)
+    AllTiersFailedError   → DESIGN_GENERATION_FAILED   true       -
+
+3안 생성은 비동기 작업이라 HTTP 에러가 아니라 DesignJob.status=failed + error로 전달한다.
+아래 각 클래스의 code는 로그·TierFailure.reason용 내부 코드다.
 """
 
 

@@ -2,6 +2,8 @@
 
 - 기본: fixtures/ 의 데모 시나리오(동아리 모집 서비스, 월 5만 원) 응답을 돌려준다.
   설계 요청은 user 메시지의 <tier>...</tier> 태그를 보고 해당 안을 고른다.
+  운영 절차는 세 안에 공통인 노드만 가리키는 고정 응답 하나를 쓰고,
+  노드 설명은 최소비용안 DynamoDB 노드 설명을 돌려준다.
 - 테스트: MockProvider(responses=[...]) 로 응답 순서를 직접 지정할 수 있다.
 """
 
@@ -11,7 +13,7 @@ from importlib import resources
 from pydantic import BaseModel
 
 from archimate.llm.providers.base import ChatMessage
-from archimate.schemas import DesignDraft, OperationsGuide
+from archimate.schemas import DesignDraft, ExplanationDraft, OperationsGuide
 
 _TIER_TAG = re.compile(r"<tier>(\w+)</tier>")
 
@@ -43,4 +45,6 @@ class MockProvider:
             return load_fixture(f"design_{tier}.json")
         if issubclass(output_model, OperationsGuide):
             return load_fixture("operations_guide.json")
+        if issubclass(output_model, ExplanationDraft):
+            return load_fixture("explanation.json")
         raise NotImplementedError(f"MockProvider: {output_model.__name__} 고정 응답 없음")
