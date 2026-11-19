@@ -36,11 +36,11 @@
       "title": "Id",
       "type": "string"
     },
-    "title": {
-      "title": "Title",
+    "text": {
+      "title": "Text",
       "type": "string"
     },
-    "description": {
+    "help": {
       "anyOf": [
         {
           "type": "string"
@@ -50,16 +50,16 @@
         }
       ],
       "default": null,
-      "title": "Description"
+      "title": "Help"
     },
-    "input_type": {
+    "inputType": {
       "enum": [
-        "single_choice",
-        "multi_choice",
+        "single",
+        "multi",
         "number",
         "text"
       ],
-      "title": "Input Type",
+      "title": "Inputtype",
       "type": "string"
     },
     "options": {
@@ -102,8 +102,8 @@
   },
   "required": [
     "id",
-    "title",
-    "input_type"
+    "text",
+    "inputType"
   ],
   "title": "InterviewQuestion",
   "type": "object"

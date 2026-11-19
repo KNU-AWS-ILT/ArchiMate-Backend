@@ -1,47 +1,105 @@
 {
   "$defs": {
-    "CostAlarm": {
+    "Checklist": {
       "properties": {
-        "name": {
-          "title": "Name",
+        "key": {
+          "description": "'cost'(비용 이상 대응) 또는 'incident'(장애 대응)",
+          "title": "Key",
           "type": "string"
-        },
-        "condition": {
-          "description": "예: '월 예상 비용이 4만 원을 넘으면'",
-          "title": "Condition",
-          "type": "string"
-        },
-        "how_to_set": {
-          "description": "AWS Budgets/CloudWatch 설정 방법",
-          "title": "How To Set",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "condition",
-        "how_to_set"
-      ],
-      "title": "CostAlarm",
-      "type": "object"
-    },
-    "DeploymentStep": {
-      "properties": {
-        "order": {
-          "minimum": 1,
-          "title": "Order",
-          "type": "integer"
         },
         "title": {
           "title": "Title",
           "type": "string"
         },
-        "description": {
-          "description": "초보자가 따라 할 수 있게 구체적으로",
-          "title": "Description",
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "title",
+        "items"
+      ],
+      "title": "Checklist",
+      "type": "object"
+    },
+    "GuidePhase": {
+      "properties": {
+        "key": {
+          "description": "단계 id. 영문 소문자·숫자·밑줄",
+          "title": "Key",
           "type": "string"
         },
-        "console_path": {
+        "title": {
+          "description": "단계 이름, 예: '저장소·데이터베이스'",
+          "title": "Title",
+          "type": "string"
+        },
+        "sub": {
+          "description": "보조 문구, 예: '1단계'",
+          "title": "Sub",
+          "type": "string"
+        },
+        "intro": {
+          "description": "단계 소개 한 줄",
+          "title": "Intro",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/GuideStep"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "title",
+        "sub",
+        "intro",
+        "steps"
+      ],
+      "title": "GuidePhase",
+      "type": "object"
+    },
+    "GuideStep": {
+      "properties": {
+        "id": {
+          "description": "절차 id. 영문 소문자·숫자·밑줄, 안 안에서 고유 (완료 체크 저장 키)",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "description": "무엇을 왜 하는지 1~2문장",
+          "title": "Desc",
+          "type": "string"
+        },
+        "nodeIds": {
+          "description": "캔버스에서 강조할 노드 id",
+          "items": {
+            "type": "string"
+          },
+          "title": "Nodeids",
+          "type": "array"
+        },
+        "todo": {
+          "description": "따라 할 일 2~5개. 초보자가 그대로 따라 할 수 있게",
+          "items": {
+            "type": "string"
+          },
+          "title": "Todo",
+          "type": "array"
+        },
+        "consolePath": {
           "anyOf": [
             {
               "type": "string"
@@ -51,111 +109,54 @@
             }
           ],
           "default": null,
-          "description": "AWS 콘솔 경로, 예: 'Lambda > 함수 생성'",
-          "title": "Console Path"
+          "description": "AWS 콘솔 경로, 예: 'Lambda > 함수 > 함수 생성'",
+          "title": "Consolepath"
+        },
+        "warn": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "주의 문구 (없으면 null)",
+          "title": "Warn"
         }
       },
       "required": [
-        "order",
+        "id",
         "title",
-        "description"
+        "desc",
+        "nodeIds",
+        "todo"
       ],
-      "title": "DeploymentStep",
-      "type": "object"
-    },
-    "Frequency": {
-      "enum": [
-        "daily",
-        "weekly",
-        "monthly"
-      ],
-      "title": "Frequency",
-      "type": "string"
-    },
-    "IncidentItem": {
-      "properties": {
-        "symptom": {
-          "description": "예: '사이트가 502 에러를 낸다'",
-          "title": "Symptom",
-          "type": "string"
-        },
-        "likely_cause": {
-          "title": "Likely Cause",
-          "type": "string"
-        },
-        "check": {
-          "description": "확인 방법",
-          "title": "Check",
-          "type": "string"
-        },
-        "action": {
-          "description": "조치 방법",
-          "title": "Action",
-          "type": "string"
-        }
-      },
-      "required": [
-        "symptom",
-        "likely_cause",
-        "check",
-        "action"
-      ],
-      "title": "IncidentItem",
-      "type": "object"
-    },
-    "RoutineTask": {
-      "properties": {
-        "frequency": {
-          "$ref": "#/$defs/Frequency"
-        },
-        "task": {
-          "title": "Task",
-          "type": "string"
-        }
-      },
-      "required": [
-        "frequency",
-        "task"
-      ],
-      "title": "RoutineTask",
+      "title": "GuideStep",
       "type": "object"
     }
   },
   "properties": {
-    "deployment_steps": {
+    "phases": {
+      "description": "배포 순서대로. 마지막 단계는 운영(비용 알람 포함)",
       "items": {
-        "$ref": "#/$defs/DeploymentStep"
+        "$ref": "#/$defs/GuidePhase"
       },
-      "title": "Deployment Steps",
+      "title": "Phases",
       "type": "array"
     },
-    "cost_alarms": {
+    "checklists": {
       "items": {
-        "$ref": "#/$defs/CostAlarm"
+        "$ref": "#/$defs/Checklist"
       },
-      "title": "Cost Alarms",
-      "type": "array"
-    },
-    "incident_checklist": {
-      "items": {
-        "$ref": "#/$defs/IncidentItem"
-      },
-      "title": "Incident Checklist",
-      "type": "array"
-    },
-    "routine_tasks": {
-      "items": {
-        "$ref": "#/$defs/RoutineTask"
-      },
-      "title": "Routine Tasks",
+      "title": "Checklists",
       "type": "array"
     }
   },
   "required": [
-    "deployment_steps",
-    "cost_alarms",
-    "incident_checklist",
-    "routine_tasks"
+    "phases",
+    "checklists"
   ],
   "title": "OperationsGuide",
   "type": "object"

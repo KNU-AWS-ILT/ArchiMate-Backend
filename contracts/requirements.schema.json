@@ -9,6 +9,16 @@
       "title": "AvailabilityNeed",
       "type": "string"
     },
+    "AwsExperience": {
+      "enum": [
+        "none",
+        "beginner",
+        "intermediate",
+        "advanced"
+      ],
+      "title": "AwsExperience",
+      "type": "string"
+    },
     "DataStorageNeed": {
       "enum": [
         "relational",
@@ -29,16 +39,6 @@
         "other"
       ],
       "title": "ServiceType",
-      "type": "string"
-    },
-    "TeamExperience": {
-      "enum": [
-        "none",
-        "beginner",
-        "intermediate",
-        "advanced"
-      ],
-      "title": "TeamExperience",
       "type": "string"
     },
     "TrafficPattern": {
@@ -63,33 +63,33 @@
       "type": "string"
     }
   },
-  "description": "가이드형 인터뷰 결과. 필드명 = 인터뷰 질문 id.",
+  "description": "가이드형 인터뷰 답변 (API 요청의 `answers`). JSON 필드명 = 인터뷰 질문 id.",
   "properties": {
-    "service_type": {
+    "serviceType": {
       "$ref": "#/$defs/ServiceType"
     },
-    "concurrent_users": {
+    "concurrentUsers": {
       "$ref": "#/$defs/UserScale"
     },
-    "monthly_budget_krw": {
-      "description": "월 예산(원)",
+    "monthlyBudget": {
+      "description": "월 예산(원, KRW)",
       "maximum": 100000000,
       "minimum": 0,
-      "title": "Monthly Budget Krw",
+      "title": "Monthlybudget",
       "type": "integer"
     },
-    "team_experience": {
-      "$ref": "#/$defs/TeamExperience"
+    "awsExperience": {
+      "$ref": "#/$defs/AwsExperience"
     },
-    "data_storage": {
+    "dataStorage": {
       "items": {
         "$ref": "#/$defs/DataStorageNeed"
       },
       "minItems": 1,
-      "title": "Data Storage",
+      "title": "Datastorage",
       "type": "array"
     },
-    "traffic_pattern": {
+    "trafficPattern": {
       "$ref": "#/$defs/TrafficPattern",
       "default": "unknown"
     },
@@ -97,7 +97,7 @@
       "$ref": "#/$defs/AvailabilityNeed",
       "default": "standard"
     },
-    "free_text": {
+    "freeText": {
       "anyOf": [
         {
           "maxLength": 1000,
@@ -109,15 +109,15 @@
       ],
       "default": null,
       "description": "자유 서술 보완 (서비스 설명, 특이사항)",
-      "title": "Free Text"
+      "title": "Freetext"
     }
   },
   "required": [
-    "service_type",
-    "concurrent_users",
-    "monthly_budget_krw",
-    "team_experience",
-    "data_storage"
+    "serviceType",
+    "concurrentUsers",
+    "monthlyBudget",
+    "awsExperience",
+    "dataStorage"
   ],
   "title": "Requirements",
   "type": "object"
