@@ -7,7 +7,8 @@
 
 # ── 백엔드(AI 생성) ──
 /src/archimate/llm/                        @syd348
-/src/archimate/handlers/design_generation.py  @syd348
+/src/archimate/handlers/generate.py         @syd348
+/src/archimate/handlers/explain.py          @syd348
 /tests/llm/                                @syd348
 /scripts/llm/                              @syd348
 /evals/                                    @syd348
@@ -16,8 +17,7 @@
 /src/archimate/api/                        @dev-sohyeon
 /src/archimate/pricing/                    @dev-sohyeon
 /src/archimate/storage/                    @dev-sohyeon
-/src/archimate/handlers/interview_api.py   @dev-sohyeon
-/src/archimate/handlers/cost_calculation.py   @dev-sohyeon
+/src/archimate/handlers/sync_prices.py      @dev-sohyeon
 /data/pricing/                             @dev-sohyeon
 /tests/api/                                @dev-sohyeon
 /tests/pricing/                            @dev-sohyeon
