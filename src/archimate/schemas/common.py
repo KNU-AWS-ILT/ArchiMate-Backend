@@ -16,11 +16,14 @@ class Tier(StrEnum):
 
 
 class AwsService(StrEnum):
-    """다이어그램 노드로 쓸 수 있는 AWS 서비스.
+    """다이어그램 노드의 서비스 종류 (JSON 필드 `serviceType`).
 
     LLM은 이 목록 밖의 서비스를 출력할 수 없다(스키마로 강제).
     프론트는 이 값으로 AWS 공식 아이콘을 매핑한다.
     """
+
+    # ── AWS 서비스가 아닌 노드 ──
+    USERS = "users"  # 사용자(브라우저·앱). 다이어그램의 시작점, 설계마다 정확히 1개
 
     # ── 비용 계산 지원 8종 (기획안 4장) ──
     LAMBDA = "lambda"
@@ -59,3 +62,44 @@ PRICED_SERVICES: frozenset[AwsService] = frozenset(
         AwsService.ALB,
     }
 )
+
+
+class ServiceCategory(StrEnum):
+    """노드 설명(D) 화면의 분류 표시용."""
+
+    EXTERNAL = "external"
+    NETWORK = "network"
+    COMPUTE = "compute"
+    STORAGE = "storage"
+    DATABASE = "database"
+    SECURITY = "security"
+    INTEGRATION = "integration"
+    MONITORING = "monitoring"
+    AI = "ai"
+
+
+# 서비스 공식 이름과 분류. LLM이 만들지 않고 이 표에서 채운다.
+SERVICE_INFO: dict[AwsService, tuple[str, ServiceCategory]] = {
+    AwsService.USERS: ("사용자", ServiceCategory.EXTERNAL),
+    AwsService.LAMBDA: ("AWS Lambda", ServiceCategory.COMPUTE),
+    AwsService.S3: ("Amazon S3", ServiceCategory.STORAGE),
+    AwsService.DYNAMODB: ("Amazon DynamoDB", ServiceCategory.DATABASE),
+    AwsService.RDS: ("Amazon RDS", ServiceCategory.DATABASE),
+    AwsService.EC2: ("Amazon EC2", ServiceCategory.COMPUTE),
+    AwsService.CLOUDFRONT: ("Amazon CloudFront", ServiceCategory.NETWORK),
+    AwsService.API_GATEWAY: ("Amazon API Gateway", ServiceCategory.NETWORK),
+    AwsService.ALB: ("Application Load Balancer", ServiceCategory.NETWORK),
+    AwsService.ECS_FARGATE: ("Amazon ECS (Fargate)", ServiceCategory.COMPUTE),
+    AwsService.NAT_GATEWAY: ("NAT Gateway", ServiceCategory.NETWORK),
+    AwsService.ELASTICACHE: ("Amazon ElastiCache", ServiceCategory.DATABASE),
+    AwsService.COGNITO: ("Amazon Cognito", ServiceCategory.SECURITY),
+    AwsService.ROUTE53: ("Amazon Route 53", ServiceCategory.NETWORK),
+    AwsService.SQS: ("Amazon SQS", ServiceCategory.INTEGRATION),
+    AwsService.SNS: ("Amazon SNS", ServiceCategory.INTEGRATION),
+    AwsService.EVENTBRIDGE: ("Amazon EventBridge", ServiceCategory.INTEGRATION),
+    AwsService.CLOUDWATCH: ("Amazon CloudWatch", ServiceCategory.MONITORING),
+    AwsService.SECRETS_MANAGER: ("AWS Secrets Manager", ServiceCategory.SECURITY),
+    AwsService.SES: ("Amazon SES", ServiceCategory.INTEGRATION),
+    AwsService.BEDROCK: ("Amazon Bedrock", ServiceCategory.AI),
+}
+assert set(SERVICE_INFO) == set(AwsService), "모든 서비스에 이름·분류가 필요합니다"

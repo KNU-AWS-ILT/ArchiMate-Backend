@@ -2,7 +2,9 @@
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from archimate.schemas.base import CamelModel
 
 
 class ServiceType(StrEnum):
@@ -23,7 +25,7 @@ class UserScale(StrEnum):
     OVER_10K = "over_10k"
 
 
-class TeamExperience(StrEnum):
+class AwsExperience(StrEnum):
     NONE = "none"  # AWS 경험 없음
     BEGINNER = "beginner"  # 콘솔로 몇 번 써 봄
     INTERMEDIATE = "intermediate"  # 직접 배포·운영해 봄
@@ -50,13 +52,13 @@ class AvailabilityNeed(StrEnum):
     HIGH = "high"  # 항상 떠 있어야 함
 
 
-class Requirements(BaseModel):
-    """가이드형 인터뷰 결과. 필드명 = 인터뷰 질문 id."""
+class Requirements(CamelModel):
+    """가이드형 인터뷰 답변 (API 요청의 `answers`). JSON 필드명 = 인터뷰 질문 id."""
 
     service_type: ServiceType
     concurrent_users: UserScale
-    monthly_budget_krw: int = Field(ge=0, le=100_000_000, description="월 예산(원)")
-    team_experience: TeamExperience
+    monthly_budget: int = Field(ge=0, le=100_000_000, description="월 예산(원, KRW)")
+    aws_experience: AwsExperience
     data_storage: list[DataStorageNeed] = Field(min_length=1)
     traffic_pattern: TrafficPattern = TrafficPattern.UNKNOWN
     availability: AvailabilityNeed = AvailabilityNeed.STANDARD

@@ -2,21 +2,26 @@
 
 설계 원칙
 - LLM은 가격을 추정하지 않는다. 각 노드에 '사용량(Usage)'만 출력하고,
-  단가 × 사용량 계산은 비용 계산 모듈(백엔드)이 가격 스냅샷으로 한다.
+  단가 × 사용량 계산은 비용 계산 모듈(백엔드)이 단가 데이터로 한다.
 - 모든 설명 문자열은 한국어.
 - Gemini·Claude 구조화 출력 양쪽에서 쓰려고 dict·재귀·Union 타입은 쓰지 않는다.
+- JSON 필드명은 camelCase (CamelModel). 프론트 명세 B(`architecture`)와 같은 모양.
 """
 
 from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field, computed_field
 
+from archimate.schemas.base import CamelModel
 from archimate.schemas.common import AwsService, Tier
+from archimate.schemas.operations import OperationsGuide
 
 
 class GroupKind(StrEnum):
-    """다이어그램 레이어(프론트가 중첩 박스로 그림)."""
+    """다이어그램 묶음(프론트가 중첩 박스로 그림)."""
 
+    PLAIN = "plain"  # 일반 묶음 (예: 운영·모니터링)
     REGION = "region"
     VPC = "vpc"
     AVAILABILITY_ZONE = "availability_zone"
@@ -24,14 +29,14 @@ class GroupKind(StrEnum):
     PRIVATE_SUBNET = "private_subnet"
 
 
-class Group(BaseModel):
+class Group(CamelModel):
     id: str = Field(description="영문 소문자·숫자·밑줄, 예: vpc_main")
     kind: GroupKind
     label: str = Field(description="표시 이름, 예: 'VPC (10.0.0.0/16)'")
     parent_id: str | None = Field(default=None, description="상위 그룹 id. 최상위면 null")
 
 
-class Usage(BaseModel):
+class Usage(CamelModel):
     """비용 계산용 월 사용량 추정치. 서비스별 필수 항목은 REQUIRED_USAGE_FIELDS 참고.
 
     ⚠️ 필드 구성은 비용 계산 담당과 합의 대상.
@@ -50,7 +55,7 @@ class Usage(BaseModel):
     multi_az: bool | None = Field(default=None, description="RDS Multi-AZ 여부")
 
 
-# 비용 계산에 반드시 필요한 Usage 필드 (LLM 출력 검증에 사용)
+# 비용 계산에 반드시 필요한 Usage 필드 (파이썬 속성명. LLM 출력 검증에 사용)
 REQUIRED_USAGE_FIELDS: dict[AwsService, tuple[str, ...]] = {
     AwsService.LAMBDA: ("monthly_requests", "avg_duration_ms", "memory_mb"),
     AwsService.API_GATEWAY: ("monthly_requests",),
@@ -69,63 +74,75 @@ REQUIRED_USAGE_FIELDS: dict[AwsService, tuple[str, ...]] = {
 }
 
 
-class Alternative(BaseModel):
-    service: AwsService
-    reason: str = Field(description="이 대안 대신 선택하지 않은 이유 또는 대안이 나은 상황")
-
-
-class Rationale(BaseModel):
-    """노드 클릭 시 보여줄 '왜 이 서비스인가 / 대안 / 주의점'."""
-
-    why: str = Field(description="이 요구사항에서 이 서비스를 고른 이유 (2~3문장)")
-    alternatives: list[Alternative] = Field(description="고려할 만한 대안 1~2개")
-    cautions: list[str] = Field(description="운영·비용 주의점 1~3개")
-
-
-class Node(BaseModel):
-    id: str = Field(description="영문 소문자·숫자·밑줄, 예: api_lambda")
-    service: AwsService
+class Node(CamelModel):
+    id: str = Field(description="영문 소문자·숫자·밑줄, 예: api_lambda. 사용자 노드는 'users'")
+    service_type: AwsService
     label: str = Field(description="표시 이름, 예: 'API 처리 함수'")
     group_id: str | None = Field(default=None, description="소속 그룹 id. 그룹 밖이면 null")
     role: str = Field(description="이 구성에서 하는 일 (한 줄)")
-    rationale: Rationale
-    usage: Usage
+    reason: str = Field(
+        description="이 요구사항에서 이 서비스를 고른 이유 한 줄. 자세한 설명은 노드 설명(D)이 만든다"
+    )
+    usage: Usage | None = Field(
+        default=None, description="비용 계산용 월 사용량. 사용자 노드는 null"
+    )
 
 
-class Edge(BaseModel):
-    source: str = Field(description="출발 노드 id. 사용자 브라우저는 'user'")
-    target: str = Field(description="도착 노드 id")
+class Edge(CamelModel):
+    from_: str = Field(alias="from", description="출발 노드 id")
+    to: str = Field(description="도착 노드 id")
     label: str | None = Field(default=None, description="예: 'HTTPS 요청', '이미지 업로드'")
 
 
-USER_NODE_ID = "user"  # 사용자(브라우저)를 나타내는 예약 id. nodes에 넣지 않는다.
+class Architecture(CamelModel):
+    """다이어그램 데이터. 좌표는 프론트가 그룹 구조로 자동 배치한다."""
 
-
-class DesignDraft(BaseModel):
-    """LLM이 한 번에 생성하는 '1안'. tier는 파이프라인이 붙인다."""
-
-    title: str = Field(description="안 이름, 예: '서버리스 최소비용 구성'")
-    summary: str = Field(description="구성 요약 2~3문장")
-    groups: list[Group]
     nodes: list[Node]
     edges: list[Edge]
-    operation_difficulty: int = Field(ge=1, le=5, description="운영 난이도 1(쉬움)~5(어려움)")
+    groups: list[Group]
+
+
+DIFFICULTY_LABELS = {1: "쉬움", 2: "보통", 3: "어려움"}
+
+
+class Difficulty(CamelModel):
+    level: Literal[1, 2, 3] = Field(description="운영 난이도 1(쉬움)~3(어려움)")
+    reason: str = Field(description="이 난이도인 이유 한 줄")
+
+    @computed_field
+    @property
+    def label(self) -> str:
+        return DIFFICULTY_LABELS[self.level]
+
+
+class DesignDraft(CamelModel):
+    """LLM이 한 번에 생성하는 '1안'. tier·운영 절차는 파이프라인이 붙인다."""
+
+    title: str = Field(description="안 이름, 예: '서버리스 최소비용 구성'")
+    summary: str = Field(description="구성 요약 1~2문장")
+    difficulty: Difficulty
+    architecture: Architecture
     pros: list[str] = Field(description="장점 2~4개")
     cons: list[str] = Field(description="단점·한계 2~4개")
     budget_note: str = Field(description="예산 대비 적합성 코멘트. 금액 숫자는 쓰지 않는다")
-    scaling_path: list[str] = Field(description="사용자 1만→10만 명으로 늘 때 바꿀 부분 1~3개")
+    scaling_path: list[str] = Field(
+        description="성장 로드맵: 사용자 1만 명, 10만 명이 될 때 바꿀 부분 (단계별 1~3개)"
+    )
 
 
 class Design(DesignDraft):
     tier: Tier
+    operations_guide: OperationsGuide | None = Field(
+        default=None, description="이 안의 배포·운영 절차. 생성에 실패하면 null"
+    )
 
 
-class TierFailure(BaseModel):
+class TierFailure(CamelModel):
     tier: Tier
     reason: str
 
 
-class DesignSet(BaseModel):
+class DesignSet(CamelModel):
     """3안 생성 결과. 일부 안이 실패해도 성공한 안은 반환한다(5일차 게이트 대비)."""
 
     designs: list[Design]
