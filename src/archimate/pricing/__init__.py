@@ -2,3 +2,13 @@
 
 입력: `archimate.schemas.Design` 의 노드별 `usage` (LLM이 단가 없이 사용량만 출력).
 """
+
+from archimate.schemas import Design, MonthlyCost
+
+
+def estimate_monthly_cost(design: Design) -> MonthlyCost | None:
+    """1안의 월 비용. 통화·응답 형식(Issue #10)이 확정되기 전까지는 None(= monthlyCost: null)."""
+    return None
+
+
+__all__ = ["estimate_monthly_cost"]
