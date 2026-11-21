@@ -1,0 +1,25 @@
+{
+  "jobId": "job_demo",
+  "status": "failed",
+  "designs": [],
+  "failures": [
+    {
+      "tier": "minimal_cost",
+      "reason": "DESIGN_GENERATION_FAILED"
+    },
+    {
+      "tier": "balanced",
+      "reason": "DESIGN_GENERATION_FAILED"
+    },
+    {
+      "tier": "scalable",
+      "reason": "DESIGN_GENERATION_FAILED"
+    }
+  ],
+  "error": {
+    "code": "DESIGN_GENERATION_FAILED",
+    "message": "구성도를 만들지 못했어요. 잠시 후 다시 시도해 주세요.",
+    "retryable": true,
+    "requestId": "job_demo"
+  }
+}

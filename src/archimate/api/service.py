@@ -5,6 +5,7 @@ id 규칙 (Issue #12에서 확정 전 초안. contracts 예시 `job_demo_minimal
     designId = "{jobId}_{tier}"   → designId만으로 job을 찾을 수 있다
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -118,18 +119,32 @@ def _safe_monthly_cost(job_id: str, design: Design, budget: int) -> MonthlyCost 
 
 
 async def run_design_job(
-    repo: DesignRepository, job_id: str, *, generate: GenerateFn = llm_generate_designs
+    repo: DesignRepository,
+    job_id: str,
+    *,
+    generate: GenerateFn = llm_generate_designs,
+    mock_delay_s: float = 0.0,
 ) -> None:
-    """3안 생성 → 안마다 비용 계산·저장 → 최종 상태 저장. 실패도 job에 기록하고 예외를 밖으로 내지 않는다."""
+    """3안 생성 → 안마다 비용 계산·저장 → 최종 상태 저장. 실패도 job에 기록하고 예외를 밖으로 내지 않는다.
+
+    mock_delay_s: 프론트 개발용 지연(MOCK_DELAY_S). 고정 응답은 바로 끝나므로
+    queued·running을 각각 이만큼 보여 주고, 안은 Tier 순서대로 이 간격을 두고 저장한다.
+    """
     job = await repo.get_job(job_id)
     if job is None:
         logger.error("job.missing job_id=%s", job_id)
         return
+    if mock_delay_s:
+        await asyncio.sleep(mock_delay_s)  # queued
     await repo.set_status(job_id, JobStatus.RUNNING)
 
     budget = job.requirements.monthly_budget
+    tier_order = list(Tier)
 
     async def on_tier_done(design: Design) -> None:
+        if mock_delay_s:
+            # 안은 병렬로 끝나므로 순서만큼 기다리면 minimal_cost → balanced → scalable 순으로 채워진다
+            await asyncio.sleep(mock_delay_s * (tier_order.index(design.tier) + 1))
         result = DesignResult(
             id=make_design_id(job_id, design.tier),
             monthly_cost=_safe_monthly_cost(job_id, design, budget),
