@@ -1,8 +1,12 @@
-"""인터뷰 답변을 정리한 요구사항. LLM 입력이 된다."""
+"""인터뷰 답변을 정리한 요구사항. LLM 입력이 된다.
+
+검증 에러 메시지는 한국어로 쓴다 (API 계층이 400 INVALID_REQUEST로 그대로 전달).
+자유 서술은 보충 정보이고, 선택한 답과 충돌하면 선택한 답이 우선한다 (LLM 프롬프트에서 처리).
+"""
 
 from enum import StrEnum
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from archimate.schemas.base import CamelModel
 
@@ -59,9 +63,28 @@ class Requirements(CamelModel):
     concurrent_users: UserScale
     monthly_budget: int = Field(ge=0, le=100_000_000, description="월 예산(원, KRW)")
     aws_experience: AwsExperience
-    data_storage: list[DataStorageNeed] = Field(min_length=1)
+    data_storage: list[DataStorageNeed] = Field(
+        min_length=1, description="해당하는 것 모두. 'none'은 단독으로만"
+    )
     traffic_pattern: TrafficPattern = TrafficPattern.UNKNOWN
     availability: AvailabilityNeed = AvailabilityNeed.STANDARD
     free_text: str | None = Field(
         default=None, max_length=1000, description="자유 서술 보완 (서비스 설명, 특이사항)"
     )
+
+    @field_validator("data_storage")
+    @classmethod
+    def _check_data_storage(cls, v: list[DataStorageNeed]) -> list[DataStorageNeed]:
+        if len(set(v)) != len(v):
+            raise ValueError("저장 데이터에 같은 항목이 중복되었습니다.")
+        if DataStorageNeed.NONE in v and len(v) > 1:
+            raise ValueError("저장 데이터 '없음'은 다른 항목과 함께 고를 수 없습니다.")
+        return v
+
+    @field_validator("free_text", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v: object) -> object:
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v

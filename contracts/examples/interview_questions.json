@@ -171,7 +171,7 @@
           "description": null
         }
       ],
-      "required": true,
+      "required": false,
       "unit": null,
       "placeholder": null
     },
@@ -197,7 +197,7 @@
           "description": "결제·예약 등 중요한 서비스"
         }
       ],
-      "required": true,
+      "required": false,
       "unit": null,
       "placeholder": null
     },
