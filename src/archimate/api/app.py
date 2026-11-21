@@ -3,6 +3,7 @@
 uvicorn archimate.api.app:app --reload
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,7 @@ from archimate.api.errors import REQUEST_ID_HEADER, install_error_handlers
 from archimate.api.routes import router
 from archimate.api.runner import JobRunner, LocalJobRunner
 from archimate.api.settings import ApiSettings, get_api_settings
+from archimate.llm.settings import get_settings as get_llm_settings
 from archimate.storage import DesignRepository, InMemoryRepository
 
 DESCRIPTION = """\
@@ -24,10 +26,22 @@ ArchiMate 백엔드 API. 인터뷰 답변으로 AWS 구성 3안(최소비용·�
 - 개발 중에는 `X-User-Id` 헤더로 사용자를 구분한다 (최종은 Cognito 로그인)
 """
 
+logger = logging.getLogger(__name__)
+
 TAGS = [
     {"name": "designs", "description": "3안 생성·조회, 운영 절차, 노드 설명"},
     {"name": "system", "description": "상태 확인"},
 ]
+
+
+def _mock_delay(settings: ApiSettings) -> float:
+    """MOCK_DELAY_S는 고정 응답일 때만 쓴다 (실제 LLM은 원래 느리다)."""
+    if not settings.mock_delay_s:
+        return 0.0
+    if get_llm_settings().provider != "mock":
+        logger.warning("MOCK_DELAY_S ignored: LLM_PROVIDER is not mock")
+        return 0.0
+    return settings.mock_delay_s
 
 
 def create_app(
@@ -39,7 +53,11 @@ def create_app(
     """테스트·실행 환경별로 저장소와 실행기를 바꿔 끼울 수 있게 팩토리로 만든다."""
     settings = settings or get_api_settings()
     repo = repo or InMemoryRepository()
-    runner = runner or LocalJobRunner(lambda job_id: service.run_design_job(repo, job_id))
+    if runner is None:
+        delay = _mock_delay(settings)
+        runner = LocalJobRunner(
+            lambda job_id: service.run_design_job(repo, job_id, mock_delay_s=delay)
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

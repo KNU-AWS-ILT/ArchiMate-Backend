@@ -40,7 +40,7 @@
 * **API 명세**
 
 > `POST /api/v1/designs` → `202 { jobId }` ([요청 예시](contracts/examples/create_design_request.json), [응답 예시](contracts/examples/design_job_accepted.json))
-> `GET /api/v1/designs/jobs/{jobId}` → 진행 상태 + 끝난 안 ([생성 중](contracts/examples/design_job_running.json), [완료](contracts/examples/design_job_completed.json), [스키마](contracts/design_job.schema.json))
+> `GET /api/v1/designs/jobs/{jobId}` → 진행 상태 + 끝난 안 ([생성 중](contracts/examples/design_job_running.json), [완료](contracts/examples/design_job_completed.json), [일부 실패](contracts/examples/design_job_partial_failed.json), [전부 실패](contracts/examples/design_job_failed.json), [스키마](contracts/design_job.schema.json))
 > `GET /api/v1/designs/{designId}/guide` → 운영 절차 ([응답 예시](contracts/examples/operations_guide_minimal_cost.json), [스키마](contracts/operations_guide.schema.json))
 
 ### 3. 노드 설명 `AI 생성`
@@ -240,6 +240,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
 | `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
 | `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
+| `MOCK_DELAY_S` | 모킹 지연(초, 기본 0). 예: `2`면 queued 2초 → running → 안이 2초 간격으로 하나씩 채워짐. `LLM_PROVIDER=mock`일 때만 적용 |
 
 ---
 
