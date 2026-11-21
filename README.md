@@ -176,7 +176,15 @@ cp .env.example .env
 
 ### 3. 서버 실행
 
-> API 서버는 API·비용 파트 구현 후 추가됩니다. 현재는 AI 생성 파이프라인을 단독으로 실행할 수 있습니다. (결과는 `out/`에 저장)
+> API 서버를 띄우면 Swagger UI(<http://localhost:8000/docs>)에서 요청을 바로 보내 볼 수 있습니다.
+> 저장소는 메모리라서 서버를 끄면 데이터가 사라집니다. 개발 중 사용자는 `X-User-Id` 헤더로 구분합니다(없으면 `local-user`).
+
+```shell
+uvicorn archimate.api.app:app --reload --app-dir src     # API 서버 (Swagger: /docs, ReDoc: /redoc)
+python scripts/export_openapi.py                           # 라우트·스키마 변경 시 contracts/openapi.json 갱신
+```
+
+AI 생성 파이프라인만 단독으로 실행할 수도 있습니다. (결과는 `out/`에 저장)
 
 ```shell
 python scripts/llm/try_generate.py                         # 데모 시나리오 3안 + 운영 절차
@@ -227,6 +235,8 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
+| `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
+| `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
 
 ---
 
