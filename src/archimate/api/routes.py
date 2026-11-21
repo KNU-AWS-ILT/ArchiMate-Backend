@@ -3,7 +3,6 @@
 operation_id는 프론트가 OpenAPI로 타입·클라이언트를 생성할 때 함수 이름이 된다.
 """
 
-import json
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Path, status
@@ -11,7 +10,6 @@ from fastapi import APIRouter, Body, Path, status
 from archimate.api import service
 from archimate.api.deps import Repo, Runner, UserId
 from archimate.api.errors import error_responses
-from archimate.llm.providers.mock import load_fixture
 from archimate.schemas import (
     CreateDesignRequest,
     DesignJob,
@@ -38,10 +36,22 @@ NodeIdPath = Annotated[
 ]
 
 # Swagger "Try it out" 기본 요청 = 데모 시나리오 (동아리 모집 서비스, 월 5만 원)
+# mock 데이터 파일에 의존하지 않도록 예시를 코드에 직접 둔다
 CREATE_DESIGN_EXAMPLES = {
     "demo": {
         "summary": "데모 시나리오: 동아리 모집 서비스",
-        "value": {"answers": json.loads(load_fixture("demo_answers.json"))},
+        "value": {
+            "answers": {
+                "serviceType": "web_app",
+                "concurrentUsers": "under_100",
+                "monthlyBudget": 50000,
+                "awsExperience": "none",
+                "dataStorage": ["key_value"],
+                "trafficPattern": "spiky",
+                "availability": "best_effort",
+                "freeText": "바이브 코딩으로 만든 동아리 모집 사이트예요. 모집 기간에만 지원자가 몰려요.",
+            }
+        },
     }
 }
 
@@ -87,7 +97,7 @@ async def create_design(
         "- 모두 실패: `status=failed`, `error`에 사유 (HTTP는 200)"
     ),
     response_model=DesignJob,
-    responses=error_responses(404),
+    responses=error_responses(400, 404),
 )
 async def get_design_job(job_id: JobIdPath, repo: Repo, user_id: UserId) -> DesignJob:
     return await service.get_job(repo, job_id, user_id)
@@ -100,7 +110,7 @@ async def get_design_job(job_id: JobIdPath, repo: Repo, user_id: UserId) -> Desi
     summary="배포·운영 절차 조회",
     description="3안 생성 때 함께 만든 절차를 조회만 한다. 생성 응답의 `designs[].operationsGuide`와 같은 값.",
     response_model=OperationsGuide,
-    responses=error_responses(404),
+    responses=error_responses(400, 404),
 )
 async def get_operations_guide(
     design_id: DesignIdPath, repo: Repo, user_id: UserId
@@ -118,7 +128,7 @@ async def get_operations_guide(
         "처음 한 번은 AI가 생성하고(수 초) 이후에는 캐시를 쓴다."
     ),
     response_model=NodeExplanation,
-    responses=error_responses(404, 429, 502, 504),
+    responses=error_responses(400, 404, 429, 502, 504),
 )
 async def get_node_explanation(
     design_id: DesignIdPath, node_id: NodeIdPath, repo: Repo, user_id: UserId

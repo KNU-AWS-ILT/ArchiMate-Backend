@@ -5,6 +5,7 @@ id 규칙 (Issue #12에서 확정 전 초안. contracts 예시 `job_demo_minimal
     designId = "{jobId}_{tier}"   → designId만으로 job을 찾을 수 있다
 """
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -107,6 +108,12 @@ async def get_guide(repo: DesignRepository, design_id: str, user_id: str) -> Ope
 # ── ④-2 생성 (JobRunner가 뒤에서 실행) ───────────────────
 
 
+async def _missing_tiers(repo: DesignRepository, job_id: str, job: JobRecord) -> list[Tier]:
+    """아직 저장되지 않은(= 실패·중단된) 안의 tier 목록."""
+    done = {d.tier for d in (await repo.get_job(job_id) or job).designs}
+    return [t for t in Tier if t not in done]
+
+
 async def run_design_job(
     repo: DesignRepository, job_id: str, *, generate: GenerateFn = llm_generate_designs
 ) -> None:
@@ -138,6 +145,27 @@ async def run_design_job(
             error=to_error_response(llm_error_to_api(e), request_id=job_id),
         )
         return
+    except asyncio.CancelledError:
+        # 서버 종료 등으로 취소되면 running에 멈추지 않도록 재시도 가능한 실패로 저장한 뒤 취소를 계속 전파한다.
+        logger.warning("job.cancelled job_id=%s", job_id)
+        try:
+            await repo.finish_job(
+                job_id,
+                JobStatus.FAILED,
+                failures=await _missing_tiers(repo, job_id, job),
+                error=to_error_response(
+                    ApiError(
+                        503,
+                        ErrorCode.INTERNAL_ERROR,
+                        "서버가 재시작되어 작업이 중단됐어요. 다시 시도해 주세요.",
+                        retryable=True,
+                    ),
+                    request_id=job_id,
+                ),
+            )
+        except Exception:
+            logger.exception("job.cancel_save_failed job_id=%s", job_id)
+        raise
     except Exception:
         logger.exception("job.crashed job_id=%s", job_id)
         await repo.finish_job(

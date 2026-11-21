@@ -4,6 +4,7 @@
 """
 
 import logging
+import re
 import uuid
 
 from fastapi import FastAPI, Request, status
@@ -22,6 +23,8 @@ from archimate.schemas import ErrorCode, ErrorResponse
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-Id"
+# 클라이언트가 보낸 값은 이 모양일 때만 로그·응답에 쓴다 (로그 주입·과도한 길이 방지)
+_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 class ApiError(Exception):
@@ -77,27 +80,61 @@ def to_error_response(e: ApiError, request_id: str | None) -> ErrorResponse:
     )
 
 
+def new_request_id() -> str:
+    return f"req_{uuid.uuid4().hex[:12]}"
+
+
+def resolve_request_id(request: Request) -> str:
+    """요청 id를 정한다. Lambda에서는 API Gateway의 requestContext.requestId를 써서
+    게이트웨이 로그와 앱 로그를 한 id로 추적한다. 로컬에서는 검증을 통과한 X-Request-Id, 없으면 새로 만든다.
+    """
+    event = request.scope.get("aws.event")  # Mangum이 넣어 주는 API Gateway 이벤트
+    if isinstance(event, dict):
+        gateway_id = (event.get("requestContext") or {}).get("requestId")
+        if isinstance(gateway_id, str) and _REQUEST_ID_PATTERN.match(gateway_id):
+            return gateway_id
+        return new_request_id()
+    sent = request.headers.get(REQUEST_ID_HEADER)
+    if sent and _REQUEST_ID_PATTERN.match(sent):
+        return sent
+    return new_request_id()
+
+
 def _request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
 
-def _json(http_status: int, body: ErrorResponse, request_id: str | None) -> JSONResponse:
-    headers = {REQUEST_ID_HEADER: request_id} if request_id else None
+def _json(
+    http_status: int,
+    body: ErrorResponse,
+    request_id: str | None,
+    extra_headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    headers = dict(extra_headers or {})
+    if request_id:
+        headers[REQUEST_ID_HEADER] = request_id
     return JSONResponse(
         status_code=http_status,
         content=body.model_dump(mode="json"),
-        headers=headers,
+        headers=headers or None,
     )
 
 
 def install_error_handlers(app: FastAPI) -> None:
+    # 이 미들웨어는 CORS 미들웨어보다 안쪽에 있어야 한다 (create_app에서 CORS를 나중에 추가).
+    # 처리되지 않은 예외는 Starlette의 ServerErrorMiddleware가 맨 바깥에서 처리해 CORS 헤더가 빠지므로,
+    # 여기서 직접 500 응답을 만들어 CORS 미들웨어를 거치게 한다.
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
-        # TODO(AWS): Lambda에서는 API Gateway 요청 id를 쓰는 편이 로그 추적에 낫다
-        request.state.request_id = request.headers.get(REQUEST_ID_HEADER) or (
-            f"req_{uuid.uuid4().hex[:12]}"
-        )
-        response = await call_next(request)
+        request.state.request_id = resolve_request_id(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("api.unhandled request_id=%s", request.state.request_id)
+            err = ApiError(
+                500, ErrorCode.INTERNAL_ERROR, "일시적인 오류가 발생했어요.", retryable=True
+            )
+            return _json(500, to_error_response(err, request.state.request_id), request.state.request_id)
         response.headers[REQUEST_ID_HEADER] = request.state.request_id
         return response
 
@@ -122,25 +159,25 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_error(request: Request, e: StarletteHTTPException) -> JSONResponse:
         # 없는 경로(404)·허용되지 않은 메서드(405) 등 프레임워크가 내는 에러
-        code = ErrorCode.NOT_FOUND if e.status_code == 404 else ErrorCode.INVALID_REQUEST
-        if e.status_code >= 500:
+        if e.status_code in (401, 403):
+            code = ErrorCode.UNAUTHORIZED
+        elif e.status_code == 404:
+            code = ErrorCode.NOT_FOUND
+        elif e.status_code >= 500:
             code = ErrorCode.INTERNAL_ERROR
+        else:
+            code = ErrorCode.INVALID_REQUEST
         rid = _request_id(request)
         err = ApiError(e.status_code, code, str(e.detail))
-        return _json(err.http_status, to_error_response(err, rid), rid)
-
-    @app.exception_handler(Exception)
-    async def handle_unexpected(request: Request, e: Exception) -> JSONResponse:
-        rid = _request_id(request)
-        logger.exception("api.unhandled request_id=%s", rid)
-        err = ApiError(500, ErrorCode.INTERNAL_ERROR, "일시적인 오류가 발생했어요.", retryable=True)
-        return _json(err.http_status, to_error_response(err, rid), rid)
+        # 405의 Allow 같은 프레임워크 헤더를 유지한다
+        return _json(err.http_status, to_error_response(err, rid), rid, dict(e.headers or {}))
 
 
 # OpenAPI(Swagger) 문서에 에러 응답 모양을 표시하기 위한 공통 정의
 def error_responses(*codes: int) -> dict[int | str, dict]:
     descriptions = {
-        400: "입력 검증 실패 (`INVALID_REQUEST`)",
+        400: "입력 검증 실패 (`INVALID_REQUEST`). 경로 id 길이 초과 포함",
+        401: "로그인 필요 (`UNAUTHORIZED`)",
         404: "job·설계·노드 없음 (`NOT_FOUND`)",
         429: "요청 과다 (`RATE_LIMITED`)",
         500: "서버 오류 (`INTERNAL_ERROR`)",
