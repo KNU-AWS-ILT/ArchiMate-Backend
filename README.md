@@ -62,7 +62,11 @@
 
 * **API 명세**
 
-> 별도 API 없음. 3안 조회 응답의 `designs[].monthlyCost`, 노드 설명의 `monthlyCost`로 내려갑니다. (형식은 API·비용 파트에서 확정)
+> 별도 API 없음. 3안 조회 응답의 `designs[].monthlyCost`, 노드 설명의 `monthlyCost`로 내려갑니다. (형식: Issue #10 C안)
+> - 화면 표시는 KRW(원 단위), USD 원금액·환율·기준일을 함께 제공. `total`은 `items[].amount` 합과 항상 같습니다.
+> - 금액은 '항상 무료' 한도(Lambda·CloudFront·DynamoDB)를 뺀 값이고, 가입 크레딧은 반영하지 않습니다.
+> - 계산 대상이 아닌 서비스·사용량이 없는 노드는 `amount: null` + `note`. 예산 초과는 `overBudget`.
+> - 개발 중 단가는 `src/archimate/pricing/snapshots/`의 서울 리전 스냅샷(근사치)을 씁니다.
 
 ### 공통: 에러 응답
 
@@ -128,7 +132,7 @@ ArchiMate-Backend/
 │   │   ├── validation.py             의미 검증 (노드 연결, 그룹 계층, 필수 사용량)
 │   │   └── settings.py · errors.py   LLM 설정, 예외
 │   ├── api/                      💰 생성 작업·결과 조회, 3안 비교 가공, 로컬 FastAPI 앱
-│   ├── pricing/                  💰 단가 동기화(Price List API), 월 비용·Free Tier 계산
+│   ├── pricing/                  💰 월 비용·Free Tier 계산, 단가 스냅샷(snapshots/)
 │   ├── storage/                  💰 DynamoDB 데이터 모델·리포지토리 (designs, prices, explanations)
 │   └── handlers/                 Lambda 진입점 (이벤트 파싱·응답 변환만)
 │       ├── generate.py               🧠 설계 생성 Lambda (접수·비동기 생성·조회)
@@ -140,7 +144,6 @@ ArchiMate-Backend/
 │   ├── llm/try_generate.py       🧠 생성 파이프라인 수동 실행
 │   └── export_contracts.py       🤝 contracts/ 생성
 ├── evals/llm/                    🧠 대표 시나리오 5종 평가
-├── data/pricing/                 💰 AWS 가격 데이터
 ├── .github/CODEOWNERS            영역별 자동 리뷰어 지정
 ├── .env.example                  환경 변수 템플릿
 └── pyproject.toml                의존성·린트·테스트 설정

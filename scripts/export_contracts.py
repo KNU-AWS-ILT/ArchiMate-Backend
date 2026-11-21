@@ -4,7 +4,7 @@
 
 - contracts/*.schema.json : JSON Schema (프론트 타입 생성, 요청·응답 검증용). 필드명 camelCase
 - contracts/examples/*.json : 데모 시나리오 실제 예시 (프론트 화면 개발용, API A~D 응답 모양)
-  monthlyCost는 비용 계산(API·비용 담당) 연결 전이라 null이다.
+  monthlyCost는 개발용 단가 스냅샷(src/archimate/pricing/snapshots/)으로 계산한 값이다.
 
 src/archimate/schemas 또는 인터뷰 질문·고정 응답을 바꾸면 실행해서 같은 PR에 포함한다.
 예시는 Mock 제공자로 실제 파이프라인을 돌려 만들므로 항상 스키마·검증을 통과한 데이터다.
@@ -17,11 +17,13 @@ from typing import Literal
 
 from pydantic import BaseModel, TypeAdapter
 
+from archimate.api.service import node_cost
 from archimate.llm import INTERVIEW_QUESTIONS, build_requirements
 from archimate.llm.interview import InterviewQuestion
 from archimate.llm.pipeline import explain_node, generate_designs
 from archimate.llm.providers.mock import MockProvider, load_fixture
 from archimate.llm.settings import LLMSettings
+from archimate.pricing import estimate_monthly_cost
 from archimate.schemas import (
     CreateDesignRequest,
     DesignJob,
@@ -63,11 +65,18 @@ async def build_examples() -> dict[str, object]:
     provider, settings = MockProvider(), LLMSettings(provider="mock")
     design_set = await generate_designs(req, provider=provider, settings=settings)
     results = [
-        DesignResult(id=f"{JOB_ID}_{d.tier.value}", **d.model_dump(by_alias=False))
+        DesignResult(
+            id=f"{JOB_ID}_{d.tier.value}",
+            monthly_cost=estimate_monthly_cost(d, monthly_budget=req.monthly_budget),
+            **d.model_dump(by_alias=False),
+        )
         for d in design_set.designs
     ]
     minimal = next(r for r in results if r.tier == Tier.MINIMAL_COST)
     explanation = await explain_node(req, minimal, "app_db", provider=provider, settings=settings)
+    explanation = explanation.model_copy(
+        update={"monthly_cost": node_cost(minimal, explanation.node_id)}
+    )
     dump = lambda m: m.model_dump(mode="json")  # noqa: E731
 
     return {
