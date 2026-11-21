@@ -20,6 +20,7 @@ from archimate.schemas import (
     DesignResult,
     ErrorCode,
     JobStatus,
+    MonthlyCost,
     NodeExplanation,
     OperationsGuide,
     Requirements,
@@ -107,6 +108,15 @@ async def get_guide(repo: DesignRepository, design_id: str, user_id: str) -> Ope
 # ── ④-2 생성 (JobRunner가 뒤에서 실행) ───────────────────
 
 
+def _safe_monthly_cost(job_id: str, design: Design, budget: int) -> MonthlyCost | None:
+    """비용 계산이 실패해도 안 자체는 보여 준다 (그 안만 monthlyCost: null)."""
+    try:
+        return estimate_monthly_cost(design, monthly_budget=budget)
+    except Exception:
+        logger.exception("cost.failed job_id=%s tier=%s", job_id, design.tier)
+        return None
+
+
 async def run_design_job(
     repo: DesignRepository, job_id: str, *, generate: GenerateFn = llm_generate_designs
 ) -> None:
@@ -117,10 +127,12 @@ async def run_design_job(
         return
     await repo.set_status(job_id, JobStatus.RUNNING)
 
+    budget = job.requirements.monthly_budget
+
     async def on_tier_done(design: Design) -> None:
         result = DesignResult(
             id=make_design_id(job_id, design.tier),
-            monthly_cost=estimate_monthly_cost(design),
+            monthly_cost=_safe_monthly_cost(job_id, design, budget),
             **design.model_dump(by_alias=False),
         )
         await repo.add_design(job_id, result)
@@ -159,14 +171,14 @@ async def run_design_job(
 # ── ⑤ 노드 설명 ──────────────────────────────────────
 
 
-def _node_cost(design: DesignResult, node_id: str) -> NodeCost | None:
+def node_cost(design: DesignResult, node_id: str) -> NodeCost | None:
     cost = design.monthly_cost
     if cost is None:
         return None
     item: CostItem | None = next((i for i in cost.items if i.node_id == node_id), None)
-    if item is None:
-        return None
-    return NodeCost(amount=item.amount, currency=cost.currency, note=item.note)
+    if item is None or item.amount is None or item.amount_usd is None:
+        return None  # 계산 대상이 아니거나 사용량이 없는 노드
+    return NodeCost(amount=item.amount, amount_usd=item.amount_usd, note=item.note)
 
 
 async def get_explanation(
@@ -190,4 +202,4 @@ async def get_explanation(
         await repo.put_explanation(design_id, node_id, cached)
 
     # 금액은 캐시하지 않고 매번 비용 계산 결과로 채운다 (설명에는 요금 숫자를 넣지 않음)
-    return cached.model_copy(update={"monthly_cost": _node_cost(design, node_id)})
+    return cached.model_copy(update={"monthly_cost": node_cost(design, node_id)})
