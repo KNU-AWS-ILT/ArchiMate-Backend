@@ -16,12 +16,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# AWS(Lambda) 배포용: pip install -e ".[aws]"
+aws = [
+    "boto3>=1.35",   # DynamoDB, Lambda 자기 호출
+    "mangum>=0.19",  # API Gateway(Lambda 프록시) ↔ FastAPI 어댑터
+]
 # 개발 도구: pip install -e ".[dev]"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
     "httpx>=0.28",  # FastAPI TestClient
+    "moto[dynamodb]>=5",  # DynamoDB 저장소 테스트 (AWS 호출 없음)
+    "boto3>=1.35",
+    "mangum>=0.19",
 ]
 
 [build-system]
