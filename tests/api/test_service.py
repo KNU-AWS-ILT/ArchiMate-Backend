@@ -1,5 +1,7 @@
 """service.py 단위 테스트 — 생성 실패·일부 실패·노드 설명 실패를 가짜 LLM 함수로 재현."""
 
+import asyncio
+
 import pytest
 
 from archimate.api import service
@@ -205,3 +207,49 @@ async def test_cost_failure_keeps_design(req, monkeypatch):
     job = await service.get_job(repo, job_id, "u1")
     assert job.status == JobStatus.COMPLETED
     assert job.designs[0].monthly_cost is None
+
+
+async def test_mock_delay_shows_queued_and_fills_in_tier_order(req):
+    # 지연 0.4초 기준 확인 시점: 0.15초(queued), 0.6초(running, 안 없음). 각각 앞뒤로 0.2초 안팎 여유
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    async def fake_generate(_req, *, on_tier_done):
+        # 실제처럼 병렬로, 일부러 역순으로 끝낸다
+        designs = [fixture_design(t) for t in reversed(list(Tier))]
+        await asyncio.gather(*(on_tier_done(d) for d in designs))
+        return DesignSet(designs=designs)
+
+    task = asyncio.create_task(
+        service.run_design_job(repo, job_id, generate=fake_generate, mock_delay_s=0.4)
+    )
+    await asyncio.sleep(0.15)
+    assert (await service.get_job(repo, job_id, "u1")).status == JobStatus.QUEUED
+    await asyncio.sleep(0.45)  # queued(0.4초) 끝, 첫 안 저장(0.8초) 전
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.status == JobStatus.RUNNING and job.designs == []
+    await task
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.status == JobStatus.COMPLETED
+    assert [d.tier for d in job.designs] == list(Tier)
+
+
+def test_mock_delay_only_applies_to_mock_provider(monkeypatch):
+    from archimate.api.app import _mock_delay
+    from archimate.api.settings import ApiSettings
+    from archimate.llm.settings import LLMSettings
+
+    settings = ApiSettings(mock_delay_s=2)
+    monkeypatch.setattr("archimate.api.app.get_llm_settings", lambda: LLMSettings(provider="mock"))
+    assert _mock_delay(settings) == 2
+    monkeypatch.setattr(
+        "archimate.api.app.get_llm_settings", lambda: LLMSettings(provider="gemini")
+    )
+    assert _mock_delay(settings) == 0
+
+
+def test_mock_delay_env_name(monkeypatch):
+    from archimate.api.settings import ApiSettings
+
+    monkeypatch.setenv("MOCK_DELAY_S", "1.5")
+    assert ApiSettings().mock_delay_s == 1.5
