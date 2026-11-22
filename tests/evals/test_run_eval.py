@@ -23,7 +23,9 @@ def test_scenarios_are_valid_answers():
     scenarios = run_eval.load_scenarios()
     assert len(scenarios) == 5
     assert len({s.id for s in scenarios}) == 5
-    demo = json.loads((ROOT / "src/archimate/llm/providers/fixtures/demo_answers.json").read_text())
+    demo = json.loads(
+        (ROOT / "src/archimate/llm/providers/fixtures/demo_answers.json").read_text("utf-8")
+    )
     assert scenarios[0].requirements.model_dump(by_alias=True) == (
         run_eval.build_requirements(demo).model_dump(by_alias=True)
     )
@@ -59,7 +61,7 @@ async def test_eval_counts_success_and_retries(tmp_path):
     summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
     assert "생성 성공률: 100% → 달성" in summary
     run_eval.write_csv(tmp_path / "results.csv", tiers)
-    assert (tmp_path / "results.csv").read_text().count("\n") == 7  # 헤더 + 2회 × 3안
+    assert (tmp_path / "results.csv").read_text("utf-8").count("\n") == 7  # 헤더 + 2회 × 3안
 
 
 async def test_eval_records_failures():
@@ -85,3 +87,4 @@ async def test_eval_records_failures():
     assert invalid  # 검증 실패 메시지가 모인다
     summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
     assert "미달" in summary and "`LLM_INVALID_OUTPUT`: 1회" in summary
+
