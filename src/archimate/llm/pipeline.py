@@ -24,6 +24,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from archimate.llm import prompts
+from archimate.llm.conflicts import check_conflict_notes, find_conflicts
 from archimate.llm.errors import (
     AllTiersFailedError,
     LLMConfigError,
@@ -276,13 +277,15 @@ async def generate_design(
     deadline: Deadline | None = None,
 ) -> Design:
     provider, settings = _resolve(provider, settings)
+    conflicts = find_conflicts(req)
     draft = await _generate_validated(
         provider,
         settings,
         system=prompts.design_system_prompt(),
         user=prompts.design_user_prompt(req, tier),
         output_model=DesignDraft,
-        check=check_design,
+        # 자유 서술 충돌을 코드가 찾았으면 cons에 알렸는지도 확인한다 (#5)
+        check=lambda d: check_design(d) + check_conflict_notes(d.cons, conflicts),
         prepare=fill_usage_defaults,
         label=f"design:{tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),

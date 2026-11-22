@@ -8,6 +8,7 @@
 from functools import cache
 from importlib import resources
 
+from archimate.llm.conflicts import find_conflicts
 from archimate.llm.interview import option_label
 from archimate.schemas import SERVICE_INFO, AwsService, Design, Node, Requirements, Tier
 from archimate.schemas.requirements import ServiceType, UserScale
@@ -112,10 +113,23 @@ def render_requirements(req: Requirements) -> str:
     return body
 
 
+def render_conflicts(req: Requirements) -> str:
+    """코드가 찾은 자유 서술·선택 항목 충돌 (#5). 없으면 빈 문자열."""
+    conflicts = find_conflicts(req)
+    if not conflicts:
+        return ""
+    notes = "\n".join(f"- {c.note}" for c in conflicts)
+    return (
+        "<conflicts>\n보충 설명이 선택 항목과 다릅니다. 선택 항목 기준으로 설계하고, "
+        f"cons 첫 항목에 아래 문장을 그대로 쓰세요.\n{notes}\n</conflicts>\n\n"
+    )
+
+
 def design_user_prompt(req: Requirements, tier: Tier) -> str:
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
         f"<usage_baseline>\n{usage_baseline(req)}\n</usage_baseline>\n\n"
+        f"{render_conflicts(req)}"
         f"<tier>{tier.value}</tier>\n"
         f"<tier_guide>{TIER_GUIDES[tier]}</tier_guide>\n\n"
         "위 요구사항으로 지정된 안 하나를 스키마에 맞춰 설계하세요."
