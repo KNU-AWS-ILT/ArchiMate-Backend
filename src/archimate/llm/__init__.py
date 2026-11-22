@@ -10,7 +10,11 @@
         cost = calculate_monthly_cost(design)         # 비용 계산 (API·비용 담당)
         await repo.save_tier(job_id, design, cost)    # 저장 → 프론트가 끝난 안부터 조회
 
-    await generate_designs(req, on_tier_done=save)    # LLMError → errors.py 매핑표 참고
+    try:
+        result = await generate_designs(req, on_tier_done=save)   # 일부 실패는 result.failures
+    except AllTiersFailedError as e:                  # 전부 실패
+        failures = e.failures                         # 시도한 안별 실패 이유
+        api_error = to_api(e.common_cause or e)       # errors.py 매핑표 참고
 
 노드 설명 Lambda:  await explain_node(req, design, node_id)  # 캐시는 호출하는 쪽에서
 """
@@ -23,6 +27,8 @@ from archimate.llm.errors import (
     LLMProviderError,
     LLMRateLimitError,
     LLMTimeoutError,
+    TierCallbackError,
+    TierInternalError,
 )
 from archimate.llm.interview import INTERVIEW_QUESTIONS, InterviewQuestion, build_requirements
 from archimate.llm.pipeline import (
@@ -44,6 +50,8 @@ __all__ = [
     "LLMProviderError",
     "LLMRateLimitError",
     "LLMTimeoutError",
+    "TierCallbackError",
+    "TierInternalError",
     "build_requirements",
     "explain_node",
     "generate_design",

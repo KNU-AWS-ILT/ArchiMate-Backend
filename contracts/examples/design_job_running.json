@@ -339,7 +339,7 @@
         "exchangeRateDate": "2026-11-20",
         "priceDate": "2026-11-20",
         "freeTier": false,
-        "freeTierNote": "Lambda·CloudFront·DynamoDB 항상 무료 한도를 빼고 계산했어요. (가입 크레딧은 반영하지 않았어요)",
+        "freeTierNote": "Lambda·CloudFront·DynamoDB 항상 무료 한도를 빼고 계산했어요. 계산에서 빠진 항목은 합계에 포함되지 않았어요. (가입 크레딧은 반영하지 않았어요)",
         "overBudget": false,
         "items": [
           {

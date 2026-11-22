@@ -9,9 +9,10 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
-from archimate.llm import LLMError, explain_node
+from archimate.llm import AllTiersFailedError, LLMError, explain_node
 from archimate.llm import generate_designs as llm_generate_designs
 from archimate.pricing import estimate_monthly_cost
 from archimate.schemas import (
@@ -34,6 +35,9 @@ from archimate.storage import DesignRepository, JobRecord
 logger = logging.getLogger(__name__)
 
 GenerateFn = Callable[..., Awaitable[object]]
+
+# 생성 Lambda 제한 시간(180초)보다 길다. 이 시간이 지나도 끝나지 않은 job은 Lambda가 강제 종료된 것으로 본다.
+JOB_STALE_AFTER_S = 200
 
 
 # ── id ──────────────────────────────────────────────
@@ -88,8 +92,34 @@ async def create_job(repo: DesignRepository, user_id: str, req: Requirements) ->
     return job_id
 
 
-async def get_job(repo: DesignRepository, job_id: str, user_id: str) -> DesignJob:
-    job = await _get_owned_job(repo, job_id, user_id)
+def _expire_if_stale(job: JobRecord, now: datetime) -> JobRecord:
+    """Lambda가 시간 초과·메모리 부족으로 강제 종료되면 job이 running으로 남아 프론트가 계속 폴링한다.
+    그래서 조회할 때 JOB_STALE_AFTER_S가 지난 작업은 끝난 것으로 응답한다 (저장값은 바꾸지 않는다).
+
+    끝난 안이 있으면 일부 실패(completed), 하나도 없으면 전체 실패(failed + 다시 시도 가능한 error).
+    """
+    if job.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+        return job
+    if (now - job.created_at).total_seconds() <= JOB_STALE_AFTER_S:
+        return job
+    logger.error("job.stale job_id=%s status=%s", job.job_id, job.status)
+    done = {d.tier for d in job.designs}
+    failures = [TierFailure(tier=t, reason="INTERNAL_ERROR") for t in Tier if t not in done]
+    if done:
+        return job.model_copy(update={"status": JobStatus.COMPLETED, "failures": failures})
+    error = to_error_response(
+        ApiError(500, ErrorCode.INTERNAL_ERROR, "작업이 중단됐어요. 다시 시도해 주세요.", retryable=True),
+        request_id=job.job_id,
+    )
+    return job.model_copy(
+        update={"status": JobStatus.FAILED, "failures": failures, "error": error}
+    )
+
+
+async def get_job(
+    repo: DesignRepository, job_id: str, user_id: str, *, now: datetime | None = None
+) -> DesignJob:
+    job = _expire_if_stale(await _get_owned_job(repo, job_id, user_id), now or datetime.now(UTC))
     return DesignJob(
         job_id=job.job_id,
         status=job.status,
@@ -118,6 +148,14 @@ def _safe_monthly_cost(job_id: str, design: Design, budget: int) -> MonthlyCost 
         return None
 
 
+async def _missing_tiers(
+    repo: DesignRepository, job_id: str, job: JobRecord, reason: str
+) -> list[TierFailure]:
+    """아직 저장되지 않은(= 실패·중단된) 안을 모두 같은 이유로 실패 처리한 목록."""
+    done = {d.tier for d in (await repo.get_job(job_id) or job).designs}
+    return [TierFailure(tier=t, reason=reason) for t in Tier if t not in done]
+
+
 async def run_design_job(
     repo: DesignRepository,
     job_id: str,
@@ -136,7 +174,10 @@ async def run_design_job(
         return
     if mock_delay_s:
         await asyncio.sleep(mock_delay_s)  # queued
-    await repo.set_status(job_id, JobStatus.RUNNING)
+    # 비동기 호출은 같은 이벤트가 두 번 올 수 있다. queued인 job만 실행해 LLM 비용이 두 번 들지 않게 한다.
+    if not await repo.claim_job(job_id):
+        logger.warning("job.already_started job_id=%s", job_id)
+        return
 
     budget = job.requirements.monthly_budget
     tier_order = list(Tier)
@@ -155,16 +196,44 @@ async def run_design_job(
     try:
         design_set = await generate(job.requirements, on_tier_done=on_tier_done)
     except LLMError as e:
-        done = {d.tier for d in (await repo.get_job(job_id) or job).designs}
-        failures = [TierFailure(tier=t, reason=e.code) for t in Tier if t not in done]
-        logger.error("job.failed job_id=%s code=%s err=%s", job_id, e.code, e)
+        # 전부 실패(#21): 안별 실패 이유는 LLM 계층이 준 그대로 쓰고(1안 모드면 1개),
+        # 세 안의 원인이 같으면 그 원인으로 응답한다 (예: 셋 다 한도 초과 → RATE_LIMITED).
+        cause: LLMError = e
+        failures: list[TierFailure] = []
+        if isinstance(e, AllTiersFailedError):
+            cause = e.common_cause or e
+            failures = e.failures
+        if not failures:
+            failures = await _missing_tiers(repo, job_id, job, e.code)
+        logger.error("job.failed job_id=%s code=%s err=%s", job_id, cause.code, e)
         await repo.finish_job(
             job_id,
             JobStatus.FAILED,
             failures=failures,
-            error=to_error_response(llm_error_to_api(e), request_id=job_id),
+            error=to_error_response(llm_error_to_api(cause), request_id=job_id),
         )
         return
+    except asyncio.CancelledError:
+        # 서버 종료 등으로 취소되면 running에 멈추지 않도록 재시도 가능한 실패로 저장한 뒤 취소를 계속 전파한다.
+        logger.warning("job.cancelled job_id=%s", job_id)
+        try:
+            await repo.finish_job(
+                job_id,
+                JobStatus.FAILED,
+                failures=await _missing_tiers(repo, job_id, job, ErrorCode.INTERNAL_ERROR.value),
+                error=to_error_response(
+                    ApiError(
+                        503,
+                        ErrorCode.INTERNAL_ERROR,
+                        "서버가 재시작되어 작업이 중단됐어요. 다시 시도해 주세요.",
+                        retryable=True,
+                    ),
+                    request_id=job_id,
+                ),
+            )
+        except Exception:
+            logger.exception("job.cancel_save_failed job_id=%s", job_id)
+        raise
     except Exception:
         logger.exception("job.crashed job_id=%s", job_id)
         await repo.finish_job(

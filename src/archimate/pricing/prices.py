@@ -63,6 +63,15 @@ class AlbPrice(CamelModel):
     per_hour: float = Field(description="시간 요금만 (LCU 제외)")
 
 
+class NatGatewayPrice(CamelModel):
+    per_hour: float = Field(description="게이트웨이 1개 시간당 단가")
+    per_gb_processed: float = Field(description="처리한 데이터 1GB당 단가")
+
+
+class ElastiCachePrice(CamelModel):
+    instance_hourly: dict[str, float] = Field(description="Redis·Valkey 온디맨드 시간당 단가")
+
+
 class PriceBook(CamelModel):
     region: str
     price_date: date
@@ -76,6 +85,8 @@ class PriceBook(CamelModel):
     rds: RdsPrice
     ec2: Ec2Price
     alb: AlbPrice
+    nat_gateway: NatGatewayPrice
+    elasticache: ElastiCachePrice
 
 
 @lru_cache

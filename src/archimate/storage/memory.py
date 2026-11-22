@@ -33,6 +33,13 @@ class InMemoryRepository:
     async def set_status(self, job_id: str, status: JobStatus) -> None:
         self._require(job_id).status = status
 
+    async def claim_job(self, job_id: str) -> bool:
+        job = self._require(job_id)
+        if job.status != JobStatus.QUEUED:
+            return False
+        job.status = JobStatus.RUNNING
+        return True
+
     async def add_design(self, job_id: str, design: DesignResult) -> None:
         self._require(job_id).designs.append(design.model_copy(deep=True))
 

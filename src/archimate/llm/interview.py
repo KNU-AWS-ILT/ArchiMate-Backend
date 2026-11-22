@@ -123,6 +123,7 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
     ),
     InterviewQuestion(
         id="trafficPattern",
+        required=False,  # 답하지 않으면 스키마 기본값 사용
         text="접속은 언제 몰리나요?",
         input_type="single",
         options=_opts(
@@ -137,6 +138,7 @@ INTERVIEW_QUESTIONS: list[InterviewQuestion] = [
     ),
     InterviewQuestion(
         id="availability",
+        required=False,  # 답하지 않으면 스키마 기본값 사용
         text="서비스가 잠깐 멈추면 얼마나 곤란한가요?",
         input_type="single",
         options=_opts(

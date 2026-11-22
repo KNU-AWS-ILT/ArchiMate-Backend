@@ -197,6 +197,26 @@ python scripts/export_contracts.py                         # 스키마 변경 �
 ruff check . && ruff format . && pytest                    # 린트·포맷·테스트
 ```
 
+### 개발 서버 배포 (Railway)
+
+> 프론트가 실제 API로 연동해 볼 개발 서버입니다. 모킹 LLM이라 비용이 들지 않습니다. 결제 수단 등록·유료 플랜 업그레이드는 하지 않습니다(코딩 컨벤션 1장).
+
+`railway.json`에 시작 명령(`uvicorn ... --port $PORT`)과 헬스 체크(`/api/v1/health`)가 들어 있어서, Railway에서 이 저장소를 연결하면 별도 설정 없이 배포됩니다.
+
+1. Railway에서 New Project → Deploy from GitHub repo → `ArchiMate-Backend` 선택
+2. Variables에 아래 값을 넣습니다. API 키는 넣지 않습니다.
+
+   | 변수 | 값 |
+   | :--- | :--- |
+   | `LLM_PROVIDER` | `mock` |
+   | `API_CORS_ORIGINS` | `["http://localhost:3000","https://프론트-배포-주소"]` |
+
+3. Settings → Networking → Generate Domain 으로 주소를 만들고 `https://<주소>/docs`에서 확인합니다.
+
+주의: 저장소가 메모리라서 재배포·재시작하면 작업 결과가 사라집니다. 사용자는 `X-User-Id` 헤더로 구분합니다(Cognito는 AWS 배포에서 적용).
+
+생성 작업이 같은 프로세스의 메모리에서 돌기 때문에 워커 수(--workers)나 인스턴스 수를 2개 이상으로 늘리면 조회가 404가 될 수 있습니다. 개발 서버는 워커 1개, 인스턴스 1개로 유지하세요.
+
 ---
 
 ## 📋 API 구성
@@ -214,13 +234,13 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 
 ## 🗄️ 데이터베이스 구조
 
-> Amazon DynamoDB (온디맨드) — 세부 설계는 API·비용 파트
+> Amazon DynamoDB (온디맨드). 키·테이블 환경 변수·TTL은 [#15](https://github.com/KNU-AWS-ILT/ArchiMate-Backend/issues/15)에서 확정했고, 구현은 `src/archimate/storage/dynamodb.py`
 
 | 테이블 | 키 | 내용 | 보존 |
 | :--- | :--- | :--- | :--- |
-| `designs` | userId / jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용 | 보존 + PITR |
-| `prices` | service / region#usageType | 서비스별 단가 | 매일 덮어쓰기 |
-| `explanations` | service / context | 노드 설명 캐시 | TTL 30일 |
+| `designs` | jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용. `userId` 속성으로 소유자 확인 | TTL 30일 (`expiresAt`) |
+| `prices` | service / regionUsageType (값 예: `ap-northeast-2#Requests`) | 서비스별 단가 | 매일 덮어쓰기 (TTL 없음) |
+| `explanations` | designId / nodeId | 노드 설명 캐시 | TTL 30일 (`expiresAt`) |
 
 ---
 

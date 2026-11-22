@@ -54,5 +54,19 @@
   },
   "alb": {
     "perHour": 0.0225
+  },
+  "natGateway": {
+    "perHour": 0.059,
+    "perGbProcessed": 0.059
+  },
+  "elasticache": {
+    "instanceHourly": {
+      "cache.t3.micro": 0.026,
+      "cache.t3.small": 0.052,
+      "cache.t3.medium": 0.104,
+      "cache.t4g.micro": 0.025,
+      "cache.t4g.small": 0.051,
+      "cache.t4g.medium": 0.102
+    }
   }
 }

@@ -20,7 +20,12 @@ from pydantic import BaseModel, TypeAdapter
 
 from archimate.api import service
 from archimate.api.service import node_cost
-from archimate.llm import INTERVIEW_QUESTIONS, AllTiersFailedError, build_requirements
+from archimate.llm import (
+    INTERVIEW_QUESTIONS,
+    AllTiersFailedError,
+    LLMRateLimitError,
+    build_requirements,
+)
 from archimate.llm.interview import InterviewQuestion
 from archimate.llm.pipeline import explain_node, generate_designs
 from archimate.llm.providers.mock import MockProvider, load_fixture
@@ -101,7 +106,11 @@ async def build_examples() -> dict[str, object]:
         return DesignSet(designs=ok, failures=failures)
 
     async def all_failed(_req, *, on_tier_done):
-        raise AllTiersFailedError("모든 안 생성 실패")
+        # 세 안 모두 한도 초과: 안별 이유(LLM_RATE_LIMITED)와 공통 원인(error.code=RATE_LIMITED)이 함께 내려온다
+        raise AllTiersFailedError(
+            failures=[TierFailure(tier=t, reason="LLM_RATE_LIMITED") for t in Tier],
+            causes=[LLMRateLimitError("한도 초과") for _ in Tier],
+        )
 
     return {
         "interview_questions": {
