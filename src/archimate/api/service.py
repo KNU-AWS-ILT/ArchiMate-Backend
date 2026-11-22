@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
-from archimate.llm import LLMError, explain_node
+from archimate.llm import AllTiersFailedError, LLMError, explain_node
 from archimate.llm import generate_designs as llm_generate_designs
 from archimate.pricing import estimate_monthly_cost
 from archimate.schemas import (
@@ -118,10 +118,12 @@ def _safe_monthly_cost(job_id: str, design: Design, budget: int) -> MonthlyCost 
         return None
 
 
-async def _missing_tiers(repo: DesignRepository, job_id: str, job: JobRecord) -> list[Tier]:
-    """아직 저장되지 않은(= 실패·중단된) 안의 tier 목록."""
+async def _missing_tiers(
+    repo: DesignRepository, job_id: str, job: JobRecord, reason: str
+) -> list[TierFailure]:
+    """아직 저장되지 않은(= 실패·중단된) 안을 모두 같은 이유로 실패 처리한 목록."""
     done = {d.tier for d in (await repo.get_job(job_id) or job).designs}
-    return [t for t in Tier if t not in done]
+    return [TierFailure(tier=t, reason=reason) for t in Tier if t not in done]
 
 
 async def run_design_job(
@@ -147,14 +149,21 @@ async def run_design_job(
     try:
         design_set = await generate(job.requirements, on_tier_done=on_tier_done)
     except LLMError as e:
-        done = {d.tier for d in (await repo.get_job(job_id) or job).designs}
-        failures = [TierFailure(tier=t, reason=e.code) for t in Tier if t not in done]
-        logger.error("job.failed job_id=%s code=%s err=%s", job_id, e.code, e)
+        # 전부 실패(#21): 안별 실패 이유는 LLM 계층이 준 그대로 쓰고(1안 모드면 1개),
+        # 세 안의 원인이 같으면 그 원인으로 응답한다 (예: 셋 다 한도 초과 → RATE_LIMITED).
+        cause: LLMError = e
+        failures: list[TierFailure] = []
+        if isinstance(e, AllTiersFailedError):
+            cause = e.common_cause or e
+            failures = e.failures
+        if not failures:
+            failures = await _missing_tiers(repo, job_id, job, e.code)
+        logger.error("job.failed job_id=%s code=%s err=%s", job_id, cause.code, e)
         await repo.finish_job(
             job_id,
             JobStatus.FAILED,
             failures=failures,
-            error=to_error_response(llm_error_to_api(e), request_id=job_id),
+            error=to_error_response(llm_error_to_api(cause), request_id=job_id),
         )
         return
     except asyncio.CancelledError:
@@ -164,7 +173,7 @@ async def run_design_job(
             await repo.finish_job(
                 job_id,
                 JobStatus.FAILED,
-                failures=await _missing_tiers(repo, job_id, job),
+                failures=await _missing_tiers(repo, job_id, job, ErrorCode.INTERNAL_ERROR.value),
                 error=to_error_response(
                     ApiError(
                         503,
