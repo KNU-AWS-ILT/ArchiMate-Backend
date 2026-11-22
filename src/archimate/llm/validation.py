@@ -112,7 +112,9 @@ def check_operations_guide(g: OperationsGuide, arch: Architecture | None = None)
     for i in keys + step_ids:
         if not _ID_PATTERN.match(i):
             errors.append(f"key/id '{i}'는 영문 소문자·숫자·밑줄만 쓸 수 있습니다.")
-    for dup in {i for i in step_ids if step_ids.count(i) > 1}:
+    for dup in sorted({k for k in keys if keys.count(k) > 1}):
+        errors.append(f"단계 key '{dup}'가 중복됩니다.")
+    for dup in sorted({i for i in step_ids if step_ids.count(i) > 1}):
         errors.append(f"절차 id '{dup}'가 중복됩니다.")
     for p in g.phases:
         if not p.steps:

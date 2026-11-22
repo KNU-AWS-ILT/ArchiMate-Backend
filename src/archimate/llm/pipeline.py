@@ -23,6 +23,8 @@ from archimate.llm.errors import (
     LLMError,
     LLMOutputError,
     LLMTimeoutError,
+    TierCallbackError,
+    TierInternalError,
 )
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
@@ -171,7 +173,11 @@ async def _generate_tier(
     except LLMError as e:
         logger.error("llm.guide_failed tier=%s code=%s err=%s", tier.value, e.code, e)
     if on_tier_done is not None:
-        await on_tier_done(design)
+        try:
+            await on_tier_done(design)
+        except Exception as e:
+            # 비용 계산·저장 실패는 이 안만 실패로 처리 (다른 안은 계속)
+            raise TierCallbackError(f"{tier.value}: on_tier_done 실패 — {e!r}") from e
     return design
 
 
@@ -183,7 +189,11 @@ async def generate_designs(
     settings: LLMSettings | None = None,
     on_tier_done: Callable[[Design], Awaitable[None]] | None = None,
 ) -> DesignSet:
-    """3안을 병렬로 생성. 일부 실패는 failures에 담고, 전부 실패하면 예외.
+    """3안을 병렬로 생성. 일부 실패는 failures에 담고, 전부 실패하면 AllTiersFailedError.
+
+    안 하나의 실패(LLM 오류, on_tier_done 오류, 예상 못 한 오류)는 그 안만 실패로 처리한다.
+    설정 오류(LLMConfigError)와 취소(CancelledError)만 전체로 올린다.
+    tiers로 일부 안만 만들 수 있다(1안 축소, #14). failures에는 시도한 안만 들어간다.
 
     on_tier_done: 안 하나가 끝날 때마다 호출된다. 비용 계산·저장을 여기서 하면
     프론트가 끝난 안부터 볼 수 있다(고도화 문서 4장 ④-2).
@@ -196,19 +206,34 @@ async def generate_designs(
 
     designs: list[Design] = []
     failures: list[TierFailure] = []
+    causes: list[LLMError] = []
     for tier, result in zip(tiers, results, strict=True):
         if isinstance(result, LLMConfigError):
             raise result  # 설정 문제는 안별 실패가 아니라 전체 실패
-        if isinstance(result, LLMError):
-            logger.error("llm.tier_failed tier=%s code=%s err=%s", tier.value, result.code, result)
-            failures.append(TierFailure(tier=tier, reason=result.code))
-        elif isinstance(result, BaseException):
-            raise result
-        else:
+        if isinstance(result, Design):
             designs.append(result)
+            continue
+        if not isinstance(result, Exception):
+            raise result  # CancelledError 등 BaseException은 그대로 올린다
+
+        if isinstance(result, LLMError):
+            err = result
+        else:
+            err = TierInternalError(f"{tier.value}: 예상 못 한 오류 — {result!r}")
+            err.__cause__ = result
+        logger.error(
+            "llm.tier_failed tier=%s code=%s err=%s",
+            tier.value,
+            err.code,
+            err,
+            # 콜백·예상 못 한 오류는 원인 추적용 스택 기록
+            exc_info=result if isinstance(err, TierInternalError) else None,
+        )
+        failures.append(TierFailure(tier=tier, reason=err.code))
+        causes.append(err)
 
     if not designs:
-        raise AllTiersFailedError("모든 안 생성 실패: " + ", ".join(f.reason for f in failures))
+        raise AllTiersFailedError(failures=failures, causes=causes)
     return DesignSet(designs=designs, failures=failures)
 
 
