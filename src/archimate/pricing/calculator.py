@@ -31,6 +31,13 @@ FREE_TIER_LABELS = {
 NOTE_UNPRICED = "비용 계산 대상이 아니에요"
 NOTE_NO_USAGE = "사용량 정보가 없어 계산하지 못했어요"
 
+# 공유 스키마의 REQUIRED_USAGE_FIELDS는 LLM 출력 검증에도 쓰여서, 아직 거기 없는 서비스의 필수 항목은
+# 계산기가 따로 확인한다. LLM 쪽 필드·프롬프트가 맞춰지면 REQUIRED_USAGE_FIELDS로 옮긴다.
+EXTRA_REQUIRED_USAGE_FIELDS: dict[AwsService, tuple[str, ...]] = {
+    AwsService.NAT_GATEWAY: ("hours_per_month", "data_transfer_out_gb"),
+    AwsService.ELASTICACHE: ("instance_type", "instance_count", "hours_per_month"),
+}
+
 
 class _CannotPrice(Exception):
     def __init__(self, note: str) -> None:
@@ -173,6 +180,22 @@ def _alb(u: Usage, p: PriceBook, _free: _FreeAllowance) -> _NodeCost:
     return _NodeCost(usd, f"월 {u.hours_per_month}시간 기준 (처리량(LCU) 요금 제외)")
 
 
+def _nat_gateway(u: Usage, p: PriceBook, _free: _FreeAllowance) -> _NodeCost:
+    npp = p.nat_gateway
+    # instance_count는 필수가 아니다. 없으면 1개(가용 영역 1곳)로 본다
+    count = u.instance_count or 1
+    usd = npp.per_hour * u.hours_per_month * count + u.data_transfer_out_gb * npp.per_gb_processed
+    note = f"{count}개, 월 {u.hours_per_month}시간, 처리 {_num(u.data_transfer_out_gb)}GB 기준"
+    return _NodeCost(usd, note)
+
+
+def _elasticache(u: Usage, p: PriceBook, _free: _FreeAllowance) -> _NodeCost:
+    hourly = _hourly(p.elasticache.instance_hourly, u.instance_type)
+    usd = hourly * u.hours_per_month * u.instance_count
+    note = f"{u.instance_type} {u.instance_count}대, 월 {u.hours_per_month}시간 기준"
+    return _NodeCost(usd, note)
+
+
 CALCULATORS: dict[AwsService, Callable[[Usage, PriceBook, _FreeAllowance], _NodeCost]] = {
     AwsService.LAMBDA: _lambda,
     AwsService.API_GATEWAY: _api_gateway,
@@ -182,6 +205,8 @@ CALCULATORS: dict[AwsService, Callable[[Usage, PriceBook, _FreeAllowance], _Node
     AwsService.RDS: _rds,
     AwsService.EC2: _ec2,
     AwsService.ALB: _alb,
+    AwsService.NAT_GATEWAY: _nat_gateway,
+    AwsService.ELASTICACHE: _elasticache,
 }
 assert set(CALCULATORS) == PRICED_SERVICES, "비용 계산 지원 서비스와 계산 함수가 어긋남"
 
@@ -191,16 +216,22 @@ def _price_node(
 ) -> _NodeCost:
     if service not in CALCULATORS:
         raise _CannotPrice(NOTE_UNPRICED)
-    required = REQUIRED_USAGE_FIELDS.get(service, ())
+    required = REQUIRED_USAGE_FIELDS.get(service) or EXTRA_REQUIRED_USAGE_FIELDS.get(service, ())
     if usage is None or any(getattr(usage, f) is None for f in required):
         raise _CannotPrice(NOTE_NO_USAGE)
     return CALCULATORS[service](usage, p, free)
 
 
-def _free_tier_note(used_by: set[AwsService], total: int) -> str | None:
+def _free_tier_note(used_by: set[AwsService], total: int, *, excluded: bool) -> str | None:
     if not used_by:
         return None
     names = "·".join(FREE_TIER_LABELS[s] for s in FREE_TIER_LABELS if s in used_by)
+    if excluded:
+        # 계산에서 빠진 노드가 있으면 합계가 실제보다 작다. 월 0원이라고 단정하지 않는다
+        return (
+            f"{names} 항상 무료 한도를 빼고 계산했어요. "
+            "계산에서 빠진 항목은 합계에 포함되지 않았어요. (가입 크레딧은 반영하지 않았어요)"
+        )
     if total == 0:
         return f"{names} 항상 무료 한도 안이라 월 0원이에요. (가입 크레딧은 반영하지 않았어요)"
     return f"{names} 항상 무료 한도를 빼고 계산했어요. (가입 크레딧은 반영하지 않았어요)"
@@ -236,14 +267,15 @@ def estimate_monthly_cost(
         )
 
     total = sum(i.amount for i in items if i.amount is not None)
+    excluded = any(i.amount is None for i in items)
     return MonthlyCost(
         total=total,
         total_usd=float(_round(total_usd, 2)),
         exchange_rate=rate,
         exchange_rate_date=p.exchange_rate.rate_date,
         price_date=p.price_date,
-        free_tier=total == 0 and bool(free.used_by),
-        free_tier_note=_free_tier_note(free.used_by, total),
+        free_tier=total == 0 and bool(free.used_by) and not excluded,
+        free_tier_note=_free_tier_note(free.used_by, total, excluded=excluded),
         over_budget=total > monthly_budget,
         items=items,
     )

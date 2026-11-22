@@ -47,6 +47,8 @@ PRICES = PriceBook.model_validate(
         "rds": {"perGbMonth": 0.1, "instanceHourly": {"db.t4g.micro": 0.02}},
         "ec2": {"instanceHourly": {"t4g.micro": 0.01}},
         "alb": {"perHour": 0.02},
+        "natGateway": {"perHour": 0.05, "perGbProcessed": 0.05},
+        "elasticache": {"instanceHourly": {"cache.t4g.micro": 0.02}},
     }
 )
 
@@ -191,3 +193,64 @@ def test_snapshot_prices_all_fixture_designs(tier):
     assert c.total == sum(i.amount for i in c.items if i.amount is not None)
     priced = [i for i in c.items if i.amount is not None]
     assert priced, "고정 응답 설계에서 계산된 노드가 하나도 없음"
+
+
+def test_nat_gateway_hourly_and_processed_data():
+    # 0.05 × 730시간 + 0.05 × 100GB = 36.5 + 5 = 41.5 USD → 41,500원
+    c = cost_of(node("nat", AwsService.NAT_GATEWAY, hours_per_month=730, data_transfer_out_gb=100))
+    assert c.items[0].amount_usd == 41.5 and c.items[0].amount == 41_500
+    assert "처리 100GB" in c.items[0].note
+
+
+def test_nat_gateway_count_multiplies_hourly_only():
+    c = cost_of(
+        node(
+            "nat",
+            AwsService.NAT_GATEWAY,
+            instance_count=2,
+            hours_per_month=730,
+            data_transfer_out_gb=100,
+        )
+    )
+    assert c.items[0].amount_usd == 78.0  # 0.05 × 730 × 2 + 0.05 × 100
+
+
+def test_elasticache_hourly():
+    c = cost_of(
+        node(
+            "cache",
+            AwsService.ELASTICACHE,
+            instance_type="cache.t4g.micro",
+            instance_count=2,
+            hours_per_month=730,
+        )
+    )
+    assert c.items[0].amount_usd == 29.2 and c.items[0].amount == 29_200
+
+
+def test_new_services_without_usage_or_price_are_null():
+    c = cost_of(
+        node("nat", AwsService.NAT_GATEWAY, hours_per_month=730),  # 처리량 빠짐
+        node(
+            "cache",
+            AwsService.ELASTICACHE,
+            instance_type="cache.r9.huge",
+            instance_count=1,
+            hours_per_month=730,
+        ),
+    )
+    by_id = {i.node_id: i for i in c.items}
+    assert by_id["nat"].amount is None and "사용량" in by_id["nat"].note
+    assert by_id["cache"].amount is None and "cache.r9.huge" in by_id["cache"].note
+
+
+def test_excluded_node_prevents_zero_won_claim():
+    # 무료 한도 안이라 합계는 0원이어도, 계산에서 빠진 노드가 있으면 "월 0원"이라고 말하면 안 된다
+    c = cost_of(
+        node("fn", AwsService.LAMBDA, monthly_requests=200_000, avg_duration_ms=200, memory_mb=256),
+        node("auth", AwsService.COGNITO),
+    )
+    assert c.total == 0
+    assert c.free_tier is False
+    assert "0원" not in c.free_tier_note
+    assert "빠진 항목" in c.free_tier_note
