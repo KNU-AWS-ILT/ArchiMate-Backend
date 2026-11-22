@@ -39,6 +39,7 @@ from archimate.llm.errors import (
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
 from archimate.llm.validation import (
+    check_budget_note,
     check_design,
     check_explanation,
     check_operations_guide,
@@ -287,7 +288,11 @@ async def generate_design(
         user=prompts.design_user_prompt(req, tier),
         output_model=DesignDraft,
         # 자유 서술 충돌을 코드가 찾았으면 cons에 알렸는지도 확인한다 (#5)
-        check=lambda d: check_design(d) + check_conflict_notes(d.cons, conflicts),
+        check=lambda d: (
+            check_design(d)
+            + check_conflict_notes(d.cons, conflicts)
+            + check_budget_note(d, req.monthly_budget)
+        ),
         prepare=fill_usage_defaults,
         label=f"design:{tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),

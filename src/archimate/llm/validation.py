@@ -8,6 +8,7 @@ from functools import cache
 
 from archimate.schemas import (
     REQUIRED_USAGE_FIELDS,
+    SERVICE_INFO,
     Architecture,
     AwsService,
     DesignDraft,
@@ -32,6 +33,77 @@ def allowed_instance_types() -> dict[AwsService, tuple[str, ...]]:
         AwsService.EC2: tuple(p.ec2.instance_hourly),
         AwsService.ELASTICACHE: tuple(p.elasticache.instance_hourly),
     }
+
+
+# ── 예산 0원 안내 (#5) ─────────────────────────────────
+# 기간 제한 없는 '항상 무료' 한도로 0원 운영이 가능한 서비스. 나머지는 쓰는 만큼 요금이 생긴다.
+# (S3·API Gateway의 12개월 무료는 2025년 7월 이후 가입 계정에 없다)
+ALWAYS_FREE_SERVICES = frozenset(
+    {
+        AwsService.USERS,
+        AwsService.LAMBDA,
+        AwsService.DYNAMODB,
+        AwsService.CLOUDFRONT,
+        AwsService.COGNITO,
+        AwsService.SQS,
+        AwsService.SNS,
+        AwsService.EVENTBRIDGE,
+        AwsService.CLOUDWATCH,
+    }
+)
+# 켜 두기만 해도 시간 요금이 나오는 서비스 (예산 0원을 확실히 넘는다)
+FIXED_COST_SERVICES = frozenset(
+    {
+        AwsService.RDS,
+        AwsService.EC2,
+        AwsService.ALB,
+        AwsService.NAT_GATEWAY,
+        AwsService.ELASTICACHE,
+        AwsService.ECS_FARGATE,
+    }
+)
+ZERO_BUDGET_NOTE = "사용량에 따라 소액 요금이 생길 수 있어요"
+ZERO_BUDGET_FIXED_NOTE = "켜 두는 동안 고정 요금이 나와 예산 0원을 넘어요"
+# 예산 0원인데 요금이 생기는 서비스를 쓰면서 0원을 단정하는 표현 (평가에서 실제로 나온 문구)
+_ZERO_COST_CLAIM = re.compile(
+    r"완벽히\s*부합|모두\s*충당|추가\s*비용[이은]?\s*(전혀\s*)?(발생하지|들지)\s*않|"
+    r"비용\s*부담[이은]?\s*없|0원\s*(내에서|범위\s*내|안에서|으로)"
+)
+
+
+def _names(services: set[AwsService]) -> str:
+    return "·".join(SERVICE_INFO[s][0] for s in AwsService if s in services)
+
+
+def zero_budget_sentence(services: set[AwsService]) -> str | None:
+    """예산 0원 설계의 budgetNote에 들어가야 할 문장. 항상 무료 서비스만 쓰면 None."""
+    fixed = services & FIXED_COST_SERVICES
+    if fixed:
+        return f"{_names(fixed)}는 {ZERO_BUDGET_FIXED_NOTE}."
+    paid = services - ALWAYS_FREE_SERVICES
+    if paid:
+        return f"{_names(paid)}는 항상 무료가 아니라 {ZERO_BUDGET_NOTE}."
+    return None
+
+
+def check_budget_note(d: DesignDraft, monthly_budget: int) -> list[str]:
+    """예산 0원이면 요금이 생기는 서비스가 있을 때 budgetNote에 정해진 안내를 넣게 한다.
+
+    설계 설명이 "추가 비용 없음"이라고 단정하는데 화면의 월 비용은 0원이 아니어서 앞뒤가 맞지 않았다.
+    고정 요금 서비스(RDS 등)가 있으면 예산을 넘는다고, 사용량 과금 서비스만 있으면 소액 요금이라고 쓴다.
+    """
+    if monthly_budget != 0:
+        return []
+    sentence = zero_budget_sentence({n.service_type for n in d.architecture.nodes})
+    if sentence is None:
+        return []
+    errors = []
+    key = ZERO_BUDGET_FIXED_NOTE if ZERO_BUDGET_FIXED_NOTE in sentence else ZERO_BUDGET_NOTE
+    if key not in d.budget_note:
+        errors.append(f"예산이 0원이라 budgetNote에 다음 문장을 넣으세요: '{sentence}'")
+    if m := _ZERO_COST_CLAIM.search(d.budget_note):
+        errors.append(f"budgetNote의 '{m.group(0)}'처럼 0원을 단정하는 표현을 빼세요.")
+    return errors
 
 
 def _usage_alias(field: str) -> str:

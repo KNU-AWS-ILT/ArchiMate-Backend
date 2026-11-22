@@ -135,11 +135,27 @@ def render_conflicts(req: Requirements) -> str:
     )
 
 
+def render_budget_rule(req: Requirements) -> str:
+    """예산 0원이면 budgetNote에 넣을 문장 규칙 (#5). 설계 전이라 서비스별 두 가지 형식을 준다."""
+    if req.monthly_budget != 0:
+        return ""
+    return (
+        "<budget_rule>\n예산이 0원입니다. 설계에 쓴 서비스에 따라 budgetNote에 아래 문장을 넣으세요.\n"
+        "- RDS·EC2·ALB·NAT Gateway·ElastiCache·ECS(Fargate)가 있으면: "
+        '"{그 서비스 이름들}는 켜 두는 동안 고정 요금이 나와 예산 0원을 넘어요."\n'
+        "- 위 서비스는 없고 S3·API Gateway·Route 53·Secrets Manager 등이 있으면: "
+        '"{그 서비스 이름들}는 항상 무료가 아니라 사용량에 따라 소액 요금이 생길 수 있어요."\n'
+        "- Lambda·DynamoDB·CloudFront·Cognito·SQS·SNS·EventBridge·CloudWatch만 쓰면 문장이 필요 없습니다.\n"
+        "</budget_rule>\n\n"
+    )
+
+
 def design_user_prompt(req: Requirements, tier: Tier) -> str:
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
         f"<usage_baseline>\n{usage_baseline(req)}\n</usage_baseline>\n\n"
         f"{render_conflicts(req)}"
+        f"{render_budget_rule(req)}"
         f"<tier>{tier.value}</tier>\n"
         f"<tier_guide>{TIER_GUIDES[tier]}</tier_guide>\n\n"
         "위 요구사항으로 지정된 안 하나를 스키마에 맞춰 설계하세요."
