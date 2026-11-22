@@ -8,7 +8,7 @@ from archimate.api import service
 from archimate.api.app import create_app
 from archimate.api.deps import get_user_id
 from archimate.api.settings import ApiSettings
-from archimate.schemas import JobStatus, Requirements
+from archimate.schemas import JobStatus, Requirements, Tier
 from archimate.storage import InMemoryRepository, JobRecord
 
 
@@ -121,3 +121,7 @@ async def test_cancelled_job_is_saved_as_retryable_failure(demo_answers):
     job = await repo.get_job("job_x")
     assert job.status == JobStatus.FAILED
     assert job.error.retryable is True
+    # 폴링 응답(DesignJob)으로 바꿀 수 있어야 한다 — failures가 Tier만 담기면 500
+    polled = await service.get_job(repo, "job_x", "u")
+    assert {f.tier for f in polled.failures} == set(Tier)
+    assert {f.reason for f in polled.failures} == {"INTERNAL_ERROR"}
