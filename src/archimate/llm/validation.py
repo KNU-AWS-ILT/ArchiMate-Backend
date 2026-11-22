@@ -24,6 +24,38 @@ def _usage_alias(field: str) -> str:
     return Usage.model_fields[field].alias or field
 
 
+# 값이 정해져 있거나 무난한 기본값이 있는 필수 사용량은 LLM이 빠뜨려도 채운다 (#5).
+# 모델이 검증 피드백을 받고도 다른 필드를 또 빠뜨려 안 전체가 실패하는 일을 줄인다.
+# instanceType처럼 설계 판단이 필요한 값은 채우지 않고 검증으로 다시 요청한다.
+ALWAYS_ON_HOURS = 730
+USAGE_DEFAULTS: dict[AwsService, dict[str, object]] = {
+    AwsService.RDS: {
+        "hours_per_month": ALWAYS_ON_HOURS,
+        "instance_count": 1,
+        "multi_az": False,
+        "storage_gb": 20,  # RDS 최소 할당 용량
+    },
+    AwsService.EC2: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
+    AwsService.ALB: {"hours_per_month": ALWAYS_ON_HOURS},
+}
+
+
+def fill_usage_defaults(d: DesignDraft) -> list[str]:
+    """빠진 필수 사용량을 USAGE_DEFAULTS로 채우고, 채운 항목을 'nodeId.field' 목록으로 돌려준다."""
+    filled: list[str] = []
+    for n in d.architecture.nodes:
+        defaults = USAGE_DEFAULTS.get(n.service_type)
+        if not defaults:
+            continue
+        if n.usage is None:
+            n.usage = Usage()
+        for field, value in defaults.items():
+            if getattr(n.usage, field) is None:
+                setattr(n.usage, field, value)
+                filled.append(f"{n.id}.{_usage_alias(field)}")
+    return filled
+
+
 def check_design(d: DesignDraft) -> list[str]:
     errors: list[str] = []
     arch = d.architecture

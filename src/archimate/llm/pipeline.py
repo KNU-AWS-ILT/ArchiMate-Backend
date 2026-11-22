@@ -37,7 +37,12 @@ from archimate.llm.errors import (
 )
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
-from archimate.llm.validation import check_design, check_explanation, check_operations_guide
+from archimate.llm.validation import (
+    check_design,
+    check_explanation,
+    check_operations_guide,
+    fill_usage_defaults,
+)
 from archimate.schemas import (
     SERVICE_INFO,
     Alternative,
@@ -187,7 +192,9 @@ async def _generate_validated(
     label: str,
     deadline: Deadline,
     allow_fallback: bool = True,
+    prepare: Callable[[T], list[str]] | None = None,
 ) -> T:
+    """prepare: 검증 전에 결과를 고친다 (예: 빠진 사용량 기본값). 고친 항목 목록을 돌려준다."""
     messages = [ChatMessage("user", user)]
     errors: list[str] = []
     call = _ProviderCall(
@@ -202,6 +209,8 @@ async def _generate_validated(
 
         try:
             result = output_model.model_validate_json(raw)
+            if prepare is not None and (fixed := prepare(result)):
+                logger.info("llm.filled_defaults label=%s fields=%s", label, fixed)
             errors = check(result)
         except ValidationError as e:
             errors = _format_validation_error(e)
@@ -274,6 +283,7 @@ async def generate_design(
         user=prompts.design_user_prompt(req, tier),
         output_model=DesignDraft,
         check=check_design,
+        prepare=fill_usage_defaults,
         label=f"design:{tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),
     )
