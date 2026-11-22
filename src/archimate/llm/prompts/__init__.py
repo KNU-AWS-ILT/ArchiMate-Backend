@@ -82,8 +82,18 @@ def _load(name: str) -> str:
     return resources.files(__package__).joinpath(name).read_text("utf-8")
 
 
+@cache
 def design_system_prompt() -> str:
-    return _load("design_system.md")
+    # 인스턴스 유형 목록은 단가 스냅샷에서 만든다 (단가가 없는 유형을 고르면 월 비용이 비어서, #5)
+    from archimate.llm.validation import allowed_instance_types
+
+    lines = [f"  - {s.value}: {', '.join(t)}" for s, t in allowed_instance_types().items()]
+    return (
+        _load("design_system.md").rstrip()
+        + "\n\n## 인스턴스 유형\n- instanceType은 아래 목록에서만 고릅니다. 목록에 없는 유형은 비용을 계산할 수 없습니다.\n"
+        + "\n".join(lines)
+        + "\n"
+    )
 
 
 def operations_system_prompt() -> str:

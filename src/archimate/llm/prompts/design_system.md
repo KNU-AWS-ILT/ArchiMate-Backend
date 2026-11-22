@@ -37,6 +37,8 @@
   - rds: instanceType(예: db.t4g.micro), instanceCount, storageGb, hoursPerMonth, multiAz
   - ec2: instanceType(예: t4g.small), instanceCount, hoursPerMonth
   - alb: hoursPerMonth
+  - nat_gateway: hoursPerMonth, dataTransferOutGb(NAT를 거쳐 나가는 월 처리량)
+  - elasticache: instanceType(예: cache.t4g.micro), instanceCount, hoursPerMonth
 - 상시 실행 리소스의 hoursPerMonth는 730입니다.
 
 ## 다이어그램 구조 규칙 (architecture)

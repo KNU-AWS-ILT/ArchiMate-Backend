@@ -71,6 +71,9 @@ REQUIRED_USAGE_FIELDS: dict[AwsService, tuple[str, ...]] = {
     ),
     AwsService.EC2: ("instance_type", "instance_count", "hours_per_month"),
     AwsService.ALB: ("hours_per_month",),
+    # NAT Gateway의 instanceCount는 선택 (없으면 1개로 계산)
+    AwsService.NAT_GATEWAY: ("hours_per_month", "data_transfer_out_gb"),
+    AwsService.ELASTICACHE: ("instance_type", "instance_count", "hours_per_month"),
 }
 
 

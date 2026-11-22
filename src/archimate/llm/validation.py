@@ -4,6 +4,7 @@
 """
 
 import re
+from functools import cache
 
 from archimate.schemas import (
     REQUIRED_USAGE_FIELDS,
@@ -18,6 +19,19 @@ from archimate.schemas import (
 _ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 # 요금 숫자: "$3", "4만 원", "1,000원", "5 USD" 등
 _PRICE_PATTERN = re.compile(r"\$\s*\d|\d[\d,.]*\s*(만|천|억)?\s*(원|달러|USD|KRW)")
+
+
+@cache
+def allowed_instance_types() -> dict[AwsService, tuple[str, ...]]:
+    """단가 스냅샷에 있는 인스턴스 유형 (#5). 이 밖의 유형은 월 비용을 계산할 수 없다."""
+    from archimate.pricing import load_price_book  # 단가 데이터는 비용 모듈이 관리한다
+
+    p = load_price_book()
+    return {
+        AwsService.RDS: tuple(p.rds.instance_hourly),
+        AwsService.EC2: tuple(p.ec2.instance_hourly),
+        AwsService.ELASTICACHE: tuple(p.elasticache.instance_hourly),
+    }
 
 
 def _usage_alias(field: str) -> str:
@@ -37,6 +51,9 @@ USAGE_DEFAULTS: dict[AwsService, dict[str, object]] = {
     },
     AwsService.EC2: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
     AwsService.ALB: {"hours_per_month": ALWAYS_ON_HOURS},
+    # NAT 비용은 대부분 시간 요금이라 처리량은 작은 기본값으로 둔다 (모델이 피드백 후에도 자주 빠뜨림)
+    AwsService.NAT_GATEWAY: {"hours_per_month": ALWAYS_ON_HOURS, "data_transfer_out_gb": 10},
+    AwsService.ELASTICACHE: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
 }
 
 
@@ -129,6 +146,17 @@ def check_design(d: DesignDraft) -> list[str]:
                 errors.append(
                     f"노드 '{n.id}'({n.service_type.value})의 usage.{_usage_alias(field)}가 필요합니다."
                 )
+
+    # 인스턴스 유형은 단가가 있는 것만 (없으면 월 비용이 비어 합계가 작게 나온다)
+    allowed = allowed_instance_types()
+    for n in arch.nodes:
+        choices = allowed.get(n.service_type)
+        itype = n.usage.instance_type if n.usage else None
+        if choices and itype is not None and itype not in choices:
+            errors.append(
+                f"노드 '{n.id}'({n.service_type.value})의 instanceType '{itype}'은 쓸 수 없습니다. "
+                f"다음 중에서 고르세요: {', '.join(choices)}"
+            )
 
     return errors
 
