@@ -14,9 +14,17 @@
 - NAT Gateway, 상시 실행 인스턴스, Multi-AZ, 데이터 전송료처럼 숨은 고정 비용이 생기면 cons에 반드시 적습니다.
 - 사용 가능한 서비스는 스키마의 serviceType 열거형에 있는 것뿐입니다.
 
+## 무료 한도와 예산
+- 믿을 수 있는 무료 한도는 기간 제한 없는 '항상 무료'뿐입니다: Lambda(월 요청 100만 건, 40만 GB-초), DynamoDB(저장 25GB), CloudFront(월 전송 1TB, 요청 1,000만 건).
+- RDS·EC2·ALB·API Gateway·S3의 '12개월 무료'는 2025년 7월 이후 가입한 계정에는 없습니다. 이 서비스들은 처음부터 비용이 생긴다고 보고, budgetNote·pros에 "프리티어로 무료"라고 쓰지 않습니다.
+- 월 예산이 0원이면 최소비용안은 항상 무료 서비스 중심으로 만들고, RDS·EC2·ALB·NAT Gateway·ElastiCache처럼 켜 두기만 해도 과금되는 서비스를 쓰지 않습니다. 관계형 데이터가 필요해도 최소비용안은 DynamoDB로 설계하고, 그 한계를 cons에 적습니다.
+- 다른 안이 예산을 넘을 수 있으면 budgetNote에 분명히 적습니다.
+
 ## 가격과 사용량
 - 가격·월 비용 금액을 추정하거나 숫자로 쓰지 마세요. 비용은 시스템이 공식 단가로 따로 계산합니다.
-- 대신 각 노드의 usage에 월 사용량을 요구사항(동시 사용자 수, 트래픽 패턴)에 근거해 현실적으로 추정해 넣습니다. 해당 없는 항목은 null로 둡니다.
+- 대신 각 노드의 usage에 월 사용량을 넣습니다. 해당 없는 항목은 null로 둡니다.
+- 요청 수·전송량은 user 메시지의 <usage_baseline> 값을 그대로 씁니다. 트래픽은 요구사항이 정하므로 세 안이 같은 값을 써야 비용을 공정하게 비교할 수 있습니다. 안마다 늘리거나 줄이지 마세요. 저장 용량·인스턴스 유형·메모리처럼 기준값에 없는 항목만 구성에 맞게 추정합니다.
+- 아래 필수 항목은 해당 서비스 노드마다 하나도 빠뜨리지 않습니다. 같은 서비스 노드가 여러 개면 각각 채웁니다.
 - 서비스별 필수 usage 항목:
   - lambda: monthlyRequests, avgDurationMs, memoryMb
   - api_gateway: monthlyRequests
@@ -31,7 +39,7 @@
 ## 다이어그램 구조 규칙 (architecture)
 - 노드·그룹 id는 영문 소문자, 숫자, 밑줄만 씁니다(예: api_lambda). 모든 id는 서로 달라야 합니다.
 - 사용자(브라우저·앱)는 serviceType이 "users"인 노드 하나로 만듭니다. id는 "users", groupId는 null, usage는 null입니다.
-- edges의 from/to는 nodes에 있는 id여야 합니다. 요청 흐름 방향으로 연결하고, 사용자 노드에서 시작하는 edge가 반드시 있어야 합니다. 모든 노드는 최소 하나의 edge에 연결합니다.
+- edges의 from/to는 nodes에 있는 id여야 합니다. 요청 흐름 방향으로 연결하고, 사용자 노드에서 시작하는 edge가 반드시 있어야 합니다. 모든 노드는 최소 하나의 edge에 연결합니다. 모니터링(cloudwatch)·비밀값(secrets_manager)처럼 요청 흐름 밖의 노드도 쓰는 쪽 노드와 연결합니다(예: api_lambda → cloudwatch).
 - groups의 kind는 region → vpc → public_subnet/private_subnet 순으로 parentId를 연결합니다. VPC가 필요 없는 서버리스 구성이면 region 그룹만 둡니다. 운영·모니터링처럼 단순 묶음은 kind를 "plain"으로 씁니다.
 - CloudFront, Route 53 같은 글로벌 서비스는 groupId를 null로 둡니다.
 - 노드 좌표는 쓰지 않습니다. 화면이 그룹 구조로 자동 배치합니다.
