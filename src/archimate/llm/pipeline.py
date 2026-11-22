@@ -114,6 +114,8 @@ class _ProviderCall:
             except TimeoutError as e:
                 raise LLMTimeoutError(f"{self._label}: {timeout_s:.3g}초 안에 응답 없음") from e
             except LLMProviderError as e:
+                # 시간 초과(LLMTimeoutError)는 일시 오류로 보지 않는다. 호출 하나가 최대 50초라
+                # 다시 불러도 또 느릴 가능성이 높고, 전체 기한만 써 버린다 (#23)
                 if not e.transient:
                     raise
                 if retries < self._settings.max_transient_retries:
