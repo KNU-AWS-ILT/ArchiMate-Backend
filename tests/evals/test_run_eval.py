@@ -49,8 +49,9 @@ async def test_eval_counts_success_and_retries(tmp_path):
 
     scenarios = run_eval.load_scenarios(only=["demo_club_recruit"])
     runs, tiers, invalid = await run_eval.run_eval(
-        scenarios, runs=2, provider=FlakyOnce(), settings=settings()
+        scenarios, runs=2, provider=FlakyOnce(), settings=settings(), save_dir=tmp_path / "designs"
     )
+    assert len(list((tmp_path / "designs").glob("demo_club_recruit_*_*.json"))) == 6
     assert [(r.tiers_ok, r.tiers_tried) for r in runs] == [(3, 3), (3, 3)]
     assert all(t.ok and t.guide_ok and t.validation_attempts == 1 for t in tiers)
     assert [t.transient_retries for t in tiers if t.tier == "scalable"] == [1, 0]

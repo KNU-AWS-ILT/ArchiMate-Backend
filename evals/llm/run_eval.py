@@ -5,7 +5,8 @@
     LLM_PROVIDER=gemini python evals/llm/run_eval.py --interval 20   # 무료 한도: 실행 사이 20초 쉼
 
 시나리오: evals/llm/scenarios/*.json ({"id", "title", "status", "answers"}). status=draft는 PM 확인 전 초안.
-결과: out/eval/{시각}/ 에 results.csv(안 1개 = 1행), runs.csv(실행 1회 = 1행), summary.md(목표 대비 판정)
+결과: out/eval/{시각}/ 에 results.csv(안 1개 = 1행), runs.csv(실행 1회 = 1행), summary.md(목표 대비 판정),
+      designs/{시나리오}_{회차}_{안}.json (생성된 설계안, 품질 확인용)
 
 측정 기준 (기획서 5장)
 - 성공 = 안이 스키마·의미 검증을 통과해 만들어짐 (= 유효한 구성도). 목표: 성공률 80% 이상
@@ -120,12 +121,18 @@ def load_scenarios(directory: Path = SCENARIO_DIR, only: list[str] | None = None
     return scenarios
 
 
+def _save_design(path: Path, design: Design) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(design.model_dump_json(by_alias=True, indent=2), "utf-8")
+
+
 async def run_once(
     scenario: Scenario,
     run: int,
     *,
     provider: LLMProvider | None = None,
     settings: LLMSettings | None = None,
+    save_dir: Path | None = None,
 ) -> tuple[RunRow, list[TierRow], list[str]]:
     settings = settings or get_settings()
     capture = _Capture()
@@ -141,6 +148,8 @@ async def run_once(
     async def on_tier_done(design: Design) -> None:
         done_at[design.tier.value] = time.perf_counter() - started
         guide_ok[design.tier.value] = design.operations_guide is not None
+        if save_dir is not None:
+            _save_design(save_dir / f"{scenario.id}_{run}_{design.tier.value}.json", design)
 
     reasons: dict[str, str] = {}
     error = ""
@@ -197,6 +206,7 @@ async def run_eval(
     interval_s: float = 0.0,
     provider: LLMProvider | None = None,
     settings: LLMSettings | None = None,
+    save_dir: Path | None = None,
 ) -> tuple[list[RunRow], list[TierRow], list[str]]:
     all_runs: list[RunRow] = []
     all_tiers: list[TierRow] = []
@@ -208,7 +218,7 @@ async def run_eval(
                 await asyncio.sleep(interval_s)
             first = False
             run_row, tier_rows, inv = await run_once(
-                scenario, run, provider=provider, settings=settings
+                scenario, run, provider=provider, settings=settings, save_dir=save_dir
             )
             all_runs.append(run_row)
             all_tiers.extend(tier_rows)
@@ -342,11 +352,15 @@ async def main() -> None:
         f"시나리오 {len(scenarios)}개 × {args.runs}회, 안 {[t.value for t in settings.tiers]}"
     )
 
-    runs, tiers, invalid = await run_eval(
-        scenarios, runs=args.runs, interval_s=args.interval, settings=settings
-    )
     out = args.out or Path("out/eval") / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
+    runs, tiers, invalid = await run_eval(
+        scenarios,
+        runs=args.runs,
+        interval_s=args.interval,
+        settings=settings,
+        save_dir=out / "designs",
+    )
     write_csv(out / "runs.csv", runs)
     write_csv(out / "results.csv", tiers)
     summary = summarize(
