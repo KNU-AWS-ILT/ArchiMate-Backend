@@ -32,7 +32,8 @@ from pathlib import Path
 from archimate.llm import AllTiersFailedError, LLMError, build_requirements, generate_designs
 from archimate.llm.providers import LLMProvider
 from archimate.llm.settings import LLMSettings, get_settings
-from archimate.schemas import Design, Requirements
+from archimate.pricing import estimate_monthly_cost
+from archimate.schemas import Design, MonthlyCost, Requirements
 
 SCENARIO_DIR = Path(__file__).parent / "scenarios"
 TARGET_SUCCESS_RATE = 0.8
@@ -61,9 +62,12 @@ class TierRow:
     validation_attempts: int  # 설계 요청 횟수 (1 = 재시도 없음)
     transient_retries: int
     fallback: bool
-    filled_defaults: (
-        int  # 모델이 빠뜨려 기본값으로 채운 사용량 필드 수 (모델이 기본값에 얼마나 기대는지)
-    )
+    # 모델이 빠뜨려 기본값으로 채운 사용량 필드 수 (모델이 기본값에 얼마나 기대는지)
+    filled_defaults: int
+    # 월 비용 (비용 계산 모듈로 계산. 실패한 안·계산 오류면 None)
+    cost_krw: int | None = None
+    unpriced_nodes: int = 0  # 비용 계산에서 빠진 노드 수 (많으면 합계가 실제보다 작다)
+    over_budget: bool | None = None
 
 
 @dataclass
@@ -152,9 +156,17 @@ async def run_once(
     guide_ok: dict[str, bool] = {}
     started = time.perf_counter()
 
+    costs: dict[str, MonthlyCost] = {}
+
     async def on_tier_done(design: Design) -> None:
         done_at[design.tier.value] = time.perf_counter() - started
         guide_ok[design.tier.value] = design.operations_guide is not None
+        try:
+            costs[design.tier.value] = estimate_monthly_cost(
+                design, monthly_budget=scenario.requirements.monthly_budget
+            )
+        except Exception as e:  # 비용 계산 오류는 평가를 멈추지 않고 비워 둔다
+            print(f"[{scenario.id} #{run}] {design.tier.value} 비용 계산 실패: {e!r}")
         if save_dir is not None:
             _save_design(save_dir / f"{scenario.id}_{run}_{design.tier.value}.json", design)
 
@@ -194,6 +206,11 @@ async def run_once(
                 transient_retries=stats.transient[label] + stats.transient[f"operations:{tier}"],
                 fallback=label in stats.fallback or f"operations:{tier}" in stats.fallback,
                 filled_defaults=stats.filled[label],
+                cost_krw=costs[tier].total if tier in costs else None,
+                unpriced_nodes=(
+                    sum(i.amount is None for i in costs[tier].items) if tier in costs else 0
+                ),
+                over_budget=costs[tier].over_budget if tier in costs else None,
             )
         )
     run_row = RunRow(
@@ -316,6 +333,27 @@ def summarize(
             f"| {statistics.mean(t.seconds for t in trows):.1f}s "
             f"| {_pct(sum(t.guide_ok for t in trows) / len(trows))} |"
         )
+
+    priced = [t for t in tiers if t.cost_krw is not None]
+    if priced:
+        lines += [
+            "",
+            "## 월 비용 (단가 스냅샷 기준)",
+            "",
+            "| 시나리오 | 안 | 예산 | 평균 월 비용 | 예산 초과 | 계산 제외 노드(평균) |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+        by_key: dict[tuple[str, str], list[TierRow]] = defaultdict(list)
+        for t in priced:
+            by_key[(t.scenario, t.tier)].append(t)
+        for (sid, tier), trows in by_key.items():
+            budget = titles[sid].requirements.monthly_budget
+            lines.append(
+                f"| {titles[sid].title} | {tier} | {budget:,}원 "
+                f"| {statistics.mean(t.cost_krw for t in trows):,.0f}원 "
+                f"| {_pct(sum(bool(t.over_budget) for t in trows) / len(trows))} "
+                f"| {statistics.mean(t.unpriced_nodes for t in trows):.1f} |"
+            )
 
     reasons = Counter(t.reason for t in tiers if not t.ok)
     if reasons:

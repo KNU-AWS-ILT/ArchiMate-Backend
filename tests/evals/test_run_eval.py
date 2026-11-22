@@ -57,9 +57,13 @@ async def test_eval_counts_success_and_retries(tmp_path):
     assert [(r.tiers_ok, r.tiers_tried) for r in runs] == [(3, 3), (3, 3)]
     assert all(t.ok and t.guide_ok and t.validation_attempts == 1 for t in tiers)
     assert [t.transient_retries for t in tiers if t.tier == "scalable"] == [1, 0]
+    # 월 비용도 기록한다 (데모 최소비용안은 예산 5만 원 안)
+    minimal = [t for t in tiers if t.tier == "minimal_cost"]
+    assert all(t.cost_krw is not None and t.over_budget is False for t in minimal)
 
     summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
     assert "생성 성공률: 100% → 달성" in summary
+    assert "## 월 비용 (단가 스냅샷 기준)" in summary
     run_eval.write_csv(tmp_path / "results.csv", tiers)
     assert (tmp_path / "results.csv").read_text("utf-8").count("\n") == 7  # 헤더 + 2회 × 3안
 
