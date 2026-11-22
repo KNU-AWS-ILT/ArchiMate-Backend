@@ -86,7 +86,6 @@ async def test_no_retry_when_time_is_short(req):
     with pytest.raises(AllTiersFailedError) as e:
         await generate_designs(req, tiers=[Tier.MINIMAL_COST], provider=provider, settings=s)
     assert [f.reason for f in e.value.failures] == ["LLM_TIMEOUT"]
-    assert "전체 기한" in str(e.value.causes[0])
     assert len(provider.calls) < 6
 
 

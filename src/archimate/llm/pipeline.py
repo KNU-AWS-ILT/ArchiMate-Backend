@@ -109,7 +109,7 @@ async def _generate_validated(
                     system=system, messages=messages, output_model=output_model
                 )
         except TimeoutError as e:
-            raise LLMTimeoutError(f"{label}: {timeout_s:.0f}초 안에 응답 없음") from e
+            raise LLMTimeoutError(f"{label}: {timeout_s:.3g}초 안에 응답 없음") from e
         elapsed = time.perf_counter() - started
 
         try:
