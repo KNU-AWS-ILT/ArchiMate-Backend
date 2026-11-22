@@ -210,6 +210,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
    | :--- | :--- |
    | `LLM_PROVIDER` | `mock` |
    | `API_CORS_ORIGINS` | `["http://localhost:3000","https://프론트-배포-주소"]` |
+   | `MOCK_DELAY_S` | `2` (프론트가 진행 화면을 볼 수 있게 queued → running → 안이 하나씩 채워지는 흐름을 재현) |
 
 3. Settings → Networking → Generate Domain 으로 주소를 만들고 `https://<주소>/docs`에서 확인합니다.
 
