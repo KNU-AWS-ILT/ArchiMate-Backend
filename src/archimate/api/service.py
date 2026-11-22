@@ -9,6 +9,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
 from archimate.llm import AllTiersFailedError, LLMError, explain_node
@@ -34,6 +35,9 @@ from archimate.storage import DesignRepository, JobRecord
 logger = logging.getLogger(__name__)
 
 GenerateFn = Callable[..., Awaitable[object]]
+
+# 생성 Lambda 제한 시간(180초)보다 길다. 이 시간이 지나도 끝나지 않은 job은 Lambda가 강제 종료된 것으로 본다.
+JOB_STALE_AFTER_S = 200
 
 
 # ── id ──────────────────────────────────────────────
@@ -88,8 +92,34 @@ async def create_job(repo: DesignRepository, user_id: str, req: Requirements) ->
     return job_id
 
 
-async def get_job(repo: DesignRepository, job_id: str, user_id: str) -> DesignJob:
-    job = await _get_owned_job(repo, job_id, user_id)
+def _expire_if_stale(job: JobRecord, now: datetime) -> JobRecord:
+    """Lambda가 시간 초과·메모리 부족으로 강제 종료되면 job이 running으로 남아 프론트가 계속 폴링한다.
+    그래서 조회할 때 JOB_STALE_AFTER_S가 지난 작업은 끝난 것으로 응답한다 (저장값은 바꾸지 않는다).
+
+    끝난 안이 있으면 일부 실패(completed), 하나도 없으면 전체 실패(failed + 다시 시도 가능한 error).
+    """
+    if job.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+        return job
+    if (now - job.created_at).total_seconds() <= JOB_STALE_AFTER_S:
+        return job
+    logger.error("job.stale job_id=%s status=%s", job.job_id, job.status)
+    done = {d.tier for d in job.designs}
+    failures = [TierFailure(tier=t, reason="INTERNAL_ERROR") for t in Tier if t not in done]
+    if done:
+        return job.model_copy(update={"status": JobStatus.COMPLETED, "failures": failures})
+    error = to_error_response(
+        ApiError(500, ErrorCode.INTERNAL_ERROR, "작업이 중단됐어요. 다시 시도해 주세요.", retryable=True),
+        request_id=job.job_id,
+    )
+    return job.model_copy(
+        update={"status": JobStatus.FAILED, "failures": failures, "error": error}
+    )
+
+
+async def get_job(
+    repo: DesignRepository, job_id: str, user_id: str, *, now: datetime | None = None
+) -> DesignJob:
+    job = _expire_if_stale(await _get_owned_job(repo, job_id, user_id), now or datetime.now(UTC))
     return DesignJob(
         job_id=job.job_id,
         status=job.status,
@@ -134,7 +164,10 @@ async def run_design_job(
     if job is None:
         logger.error("job.missing job_id=%s", job_id)
         return
-    await repo.set_status(job_id, JobStatus.RUNNING)
+    # 비동기 호출은 같은 이벤트가 두 번 올 수 있다. queued인 job만 실행해 LLM 비용이 두 번 들지 않게 한다.
+    if not await repo.claim_job(job_id):
+        logger.warning("job.already_started job_id=%s", job_id)
+        return
 
     budget = job.requirements.monthly_budget
 

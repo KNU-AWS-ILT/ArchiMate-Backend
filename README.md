@@ -234,13 +234,13 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 
 ## 🗄️ 데이터베이스 구조
 
-> Amazon DynamoDB (온디맨드) — 세부 설계는 API·비용 파트
+> Amazon DynamoDB (온디맨드). 키·테이블 환경 변수·TTL은 [#15](https://github.com/KNU-AWS-ILT/ArchiMate-Backend/issues/15)에서 확정했고, 구현은 `src/archimate/storage/dynamodb.py`
 
 | 테이블 | 키 | 내용 | 보존 |
 | :--- | :--- | :--- | :--- |
-| `designs` | userId / jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용 | 보존 + PITR |
-| `prices` | service / region#usageType | 서비스별 단가 | 매일 덮어쓰기 |
-| `explanations` | service / context | 노드 설명 캐시 | TTL 30일 |
+| `designs` | jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용. `userId` 속성으로 소유자 확인 | TTL 30일 (`expiresAt`) |
+| `prices` | service / regionUsageType (값 예: `ap-northeast-2#Requests`) | 서비스별 단가 | 매일 덮어쓰기 (TTL 없음) |
+| `explanations` | designId / nodeId | 노드 설명 캐시 | TTL 30일 (`expiresAt`) |
 
 ---
 
