@@ -39,7 +39,14 @@ class LLMSettings(BaseSettings):
     explain_model: str | None = Field(
         default=None, description="노드 설명용 소형 모델. 비우면 제공자별 기본 모델"
     )
+    fallback_model: str | None = Field(
+        default=None,
+        description="설계용 모델이 한도 초과(429)로 실패하면 1회 시도할 대체 모델. 비우면 사용 안 함",
+    )
     max_validation_retries: int = Field(default=2, ge=0, le=5)
+    # 일시 오류(429, 5xx, 네트워크) 재시도 (#23). 대기: base × 2^n + 무작위(0~base)초, 전체 기한 안에서만
+    max_transient_retries: int = Field(default=3, ge=0, le=5)
+    retry_base_delay_s: float = Field(default=1.0, gt=0)
     request_timeout_s: float = Field(default=50.0, gt=0, description="LLM 1회 호출 제한 시간(초)")
     # 전체 기한 (#22): 호출마다 남은 시간만 기다리고, 시간이 부족하면 재시도하지 않는다
     generation_deadline_s: float = Field(

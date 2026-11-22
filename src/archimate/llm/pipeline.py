@@ -9,10 +9,14 @@
 
 전체 기한(#22): 설계 생성은 LLM_GENERATION_DEADLINE_S(3안 공통), 노드 설명은 LLM_EXPLAIN_DEADLINE_S.
 호출마다 남은 시간만 기다리고, 남은 시간이 부족하면 재시도하지 않고 LLMTimeoutError로 끝낸다.
+
+일시 오류(#23): 429·5xx·네트워크 오류는 지수 백오프로 최대 LLM_MAX_TRANSIENT_RETRIES회 다시 부른다.
+설계·운영 절차는 한도 초과가 계속되면 LLM_FALLBACK_MODEL로 1회 더 시도한다 (노드 설명은 대체 모델 없음).
 """
 
 import asyncio
 import logging
+import random
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TypeVar
@@ -25,6 +29,8 @@ from archimate.llm.errors import (
     LLMConfigError,
     LLMError,
     LLMOutputError,
+    LLMProviderError,
+    LLMRateLimitError,
     LLMTimeoutError,
     TierCallbackError,
     TierInternalError,
@@ -67,6 +73,103 @@ class Deadline:
         return self._ends_at - time.monotonic()
 
 
+class _ProviderCall:
+    """제공자 호출 = 전체 기한 안에서 일시 오류 재시도(지수 백오프) + 한도 초과 시 대체 모델 1회 (#23).
+
+    대체 모델로 바꾸면 같은 요청의 검증 재시도도 대체 모델로 이어 간다.
+    """
+
+    def __init__(
+        self,
+        provider: LLMProvider,
+        settings: LLMSettings,
+        *,
+        label: str,
+        deadline: Deadline,
+        allow_fallback: bool,
+    ) -> None:
+        self.provider = provider
+        self.used_fallback = False
+        self._settings = settings
+        self._label = label
+        self._deadline = deadline
+        self._fallback_model = settings.fallback_model if allow_fallback else None
+
+    async def __call__(
+        self,
+        *,
+        system: str,
+        messages: list[ChatMessage],
+        output_model: type[BaseModel],
+        detail: str = "",
+    ) -> str:
+        retries = 0
+        while True:
+            timeout_s = min(self._settings.request_timeout_s, self._remaining_or_raise(detail))
+            try:
+                async with asyncio.timeout(timeout_s):
+                    return await self.provider.generate_json(
+                        system=system, messages=messages, output_model=output_model
+                    )
+            except TimeoutError as e:
+                raise LLMTimeoutError(f"{self._label}: {timeout_s:.0f}초 안에 응답 없음") from e
+            except LLMProviderError as e:
+                if not e.transient:
+                    raise
+                if retries < self._settings.max_transient_retries:
+                    delay = self._backoff(retries, e.retry_after_s)
+                    if self._deadline.remaining() - delay >= MIN_ATTEMPT_S:
+                        retries += 1
+                        logger.warning(
+                            "llm.transient_retry label=%s code=%s retry=%d delay=%.1fs err=%s",
+                            self._label,
+                            e.code,
+                            retries,
+                            delay,
+                            e,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                if self._switch_to_fallback(e):
+                    retries = self._settings.max_transient_retries  # 대체 모델은 1회만
+                    continue
+                raise
+
+    def _remaining_or_raise(self, detail: str) -> float:
+        remaining = self._deadline.remaining()
+        if remaining < MIN_ATTEMPT_S:
+            logger.warning("llm.deadline_exceeded label=%s remaining=%.1fs", self._label, remaining)
+            raise LLMTimeoutError(
+                f"{self._label}: 전체 기한 {self._deadline.seconds:g}초 안에 끝내지 못함{detail}"
+            )
+        return remaining
+
+    def _backoff(self, retry: int, retry_after_s: float | None) -> float:
+        base = self._settings.retry_base_delay_s
+        delay = base * 2**retry + random.uniform(0, base)
+        return max(delay, retry_after_s or 0.0)
+
+    def _switch_to_fallback(self, e: LLMProviderError) -> bool:
+        model = self._fallback_model
+        if (
+            not isinstance(e, LLMRateLimitError)
+            or not model
+            or self.used_fallback
+            or model == self.provider.model
+        ):
+            return False
+        logger.warning(
+            "llm.fallback label=%s code=%s from=%s to=%s",
+            self._label,
+            e.code,
+            self.provider.model,
+            model,
+        )
+        self.provider = build_provider(self._settings, model=model)
+        self.used_fallback = True
+        return True
+
+
 def _format_validation_error(e: ValidationError) -> list[str]:
     return [
         f"{'.'.join(str(p) for p in err['loc']) or '(root)'}: {err['msg']}" for err in e.errors()
@@ -83,33 +186,18 @@ async def _generate_validated(
     check: Callable[[T], list[str]],
     label: str,
     deadline: Deadline,
+    allow_fallback: bool = True,
 ) -> T:
     messages = [ChatMessage("user", user)]
     errors: list[str] = []
+    call = _ProviderCall(
+        provider, settings, label=label, deadline=deadline, allow_fallback=allow_fallback
+    )
 
     for attempt in range(settings.max_validation_retries + 1):
-        remaining = deadline.remaining()
-        if remaining < MIN_ATTEMPT_S:
-            detail = f" (직전 검증 오류: {'; '.join(errors[:3])})" if errors else ""
-            logger.warning(
-                "llm.deadline_exceeded label=%s attempt=%d remaining=%.1fs",
-                label,
-                attempt + 1,
-                remaining,
-            )
-            raise LLMTimeoutError(
-                f"{label}: 전체 기한 {deadline.seconds:g}초 안에 끝내지 못함{detail}"
-            )
-        timeout_s = min(settings.request_timeout_s, remaining)
-
+        detail = f" (직전 검증 오류: {'; '.join(errors[:3])})" if errors else ""
         started = time.perf_counter()
-        try:
-            async with asyncio.timeout(timeout_s):
-                raw = await provider.generate_json(
-                    system=system, messages=messages, output_model=output_model
-                )
-        except TimeoutError as e:
-            raise LLMTimeoutError(f"{label}: {timeout_s:.0f}초 안에 응답 없음") from e
+        raw = await call(system=system, messages=messages, output_model=output_model, detail=detail)
         elapsed = time.perf_counter() - started
 
         try:
@@ -119,10 +207,12 @@ async def _generate_validated(
             errors = _format_validation_error(e)
 
         logger.info(
-            "llm.generate label=%s provider=%s model=%s attempt=%d elapsed=%.1fs errors=%d",
+            "llm.generate label=%s provider=%s model=%s fallback=%s attempt=%d elapsed=%.1fs "
+            "errors=%d",
             label,
-            provider.name,
-            provider.model,
+            call.provider.name,
+            call.provider.model,
+            call.used_fallback,
             attempt + 1,
             elapsed,
             len(errors),
@@ -336,6 +426,7 @@ async def explain_node(
         check=lambda e: check_explanation(e, node.service_type),
         label=f"explain:{design.tier.value}:{node.id}",
         deadline=Deadline(settings.explain_deadline_s),
+        allow_fallback=False,  # 기한 20초가 짧고, 실패해도 사용자가 다시 누르면 된다
     )
     name, category = SERVICE_INFO[node.service_type]
     return NodeExplanation(
