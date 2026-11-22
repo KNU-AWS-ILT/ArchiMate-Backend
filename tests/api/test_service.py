@@ -148,6 +148,7 @@ async def test_cost_failure_keeps_design(req, monkeypatch):
 
 
 async def test_mock_delay_shows_queued_and_fills_in_tier_order(req):
+    # 지연 0.4초 기준 확인 시점: 0.15초(queued), 0.6초(running, 안 없음). 각각 앞뒤로 0.2초 안팎 여유
     repo = InMemoryRepository()
     job_id = await service.create_job(repo, "u1", req)
 
@@ -158,11 +159,11 @@ async def test_mock_delay_shows_queued_and_fills_in_tier_order(req):
         return DesignSet(designs=designs)
 
     task = asyncio.create_task(
-        service.run_design_job(repo, job_id, generate=fake_generate, mock_delay_s=0.05)
+        service.run_design_job(repo, job_id, generate=fake_generate, mock_delay_s=0.4)
     )
-    await asyncio.sleep(0.02)
+    await asyncio.sleep(0.15)
     assert (await service.get_job(repo, job_id, "u1")).status == JobStatus.QUEUED
-    await asyncio.sleep(0.06)  # queued 끝, 첫 안 저장 전
+    await asyncio.sleep(0.45)  # queued(0.4초) 끝, 첫 안 저장(0.8초) 전
     job = await service.get_job(repo, job_id, "u1")
     assert job.status == JobStatus.RUNNING and job.designs == []
     await task
