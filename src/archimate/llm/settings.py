@@ -42,7 +42,7 @@ class LLMSettings(BaseSettings):
     )
     fallback_model: str | None = Field(
         default=None,
-        description="설계용 모델이 한도 초과(429)로 실패하면 1회 시도할 대체 모델. 비우면 사용 안 함",
+        description="설계용 모델이 한도 초과(429)·과부하(503, 529)로 계속 실패하면 1회 시도할 대체 모델",
     )
     max_validation_retries: int = Field(default=2, ge=0, le=5)
     # 일시 오류(429, 5xx, 네트워크) 재시도 (#23). 대기: base × 2^n + 무작위(0~base)초, 전체 기한 안에서만

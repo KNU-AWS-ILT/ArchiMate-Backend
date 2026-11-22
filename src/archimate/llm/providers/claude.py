@@ -98,7 +98,10 @@ class ClaudeProvider:
             # 5xx·529(과부하)는 일시 오류, 그 밖의 4xx는 요청 자체의 문제
             transient = e.status_code >= 500
             raise LLMProviderError(
-                str(e), transient=transient, retry_after_s=_retry_after(e)
+                str(e),
+                transient=transient,
+                retry_after_s=_retry_after(e),
+                overloaded=e.status_code in (503, 529),
             ) from e
         except anthropic.APIError as e:
             raise LLMProviderError(str(e)) from e

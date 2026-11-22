@@ -262,7 +262,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `LLM_TIERS` | 생성할 안, 쉼표 구분 (기본 3안 전체). 1안으로 줄일 때 `minimal_cost` |
 | `LLM_MAX_TRANSIENT_RETRIES` | 일시 오류(429·5xx·네트워크) 재시도 횟수 (기본 3, 지수 백오프) |
 | `LLM_RETRY_BASE_DELAY_S` | 재시도 첫 대기 시간(초, 기본 1). 1초 → 2초 → 4초 + 무작위 |
-| `LLM_FALLBACK_MODEL` | 한도 초과가 계속될 때 1회 시도할 대체 모델 (기본 없음, 설계·운영 절차만) |
+| `LLM_FALLBACK_MODEL` | 한도 초과(429)·과부하(503, 529)가 재시도 후에도 계속될 때 1회 시도할 대체 모델 (기본 없음, 설계·운영 절차만) |
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |

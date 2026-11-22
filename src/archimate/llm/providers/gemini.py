@@ -86,7 +86,7 @@ class GeminiProvider:
             if e.code in (401, 403):
                 raise LLMConfigError(f"Gemini 인증 오류: {e}") from e
             # 500·503(과부하)·504는 일시 오류. 개발 중 무료 티어에서 503이 실제로 났다 (#23)
-            raise LLMProviderError(str(e), transient=e.code >= 500) from e
+            raise LLMProviderError(str(e), transient=e.code >= 500, overloaded=e.code == 503) from e
         except httpx.TimeoutException as e:
             raise LLMTimeoutError(f"Gemini 응답 시간 초과: {e!r}") from e
         except httpx.TransportError as e:

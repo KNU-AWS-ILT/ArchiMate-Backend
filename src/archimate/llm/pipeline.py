@@ -11,7 +11,7 @@
 호출마다 남은 시간만 기다리고, 남은 시간이 부족하면 재시도하지 않고 LLMTimeoutError로 끝낸다.
 
 일시 오류(#23): 429·5xx·네트워크 오류는 지수 백오프로 최대 LLM_MAX_TRANSIENT_RETRIES회 다시 부른다.
-설계·운영 절차는 한도 초과가 계속되면 LLM_FALLBACK_MODEL로 1회 더 시도한다 (노드 설명은 대체 모델 없음).
+설계·운영 절차는 한도 초과·과부하가 계속되면 LLM_FALLBACK_MODEL로 1회 더 시도한다 (노드 설명은 대체 모델 없음).
 """
 
 import asyncio
@@ -160,8 +160,9 @@ class _ProviderCall:
 
     def _switch_to_fallback(self, e: LLMProviderError) -> bool:
         model = self._fallback_model
+        # 한도 초과·과부하는 모델별이라 다른 모델이면 될 수 있다. 네트워크 끊김·500은 바꿔도 같다
         if (
-            not isinstance(e, LLMRateLimitError)
+            not (isinstance(e, LLMRateLimitError) or e.overloaded)
             or not model
             or self.used_fallback
             or model == self.provider.model

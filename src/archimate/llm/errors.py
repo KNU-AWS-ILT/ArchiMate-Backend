@@ -39,6 +39,8 @@ class LLMProviderError(LLMError):
     transient: 잠시 뒤 다시 하면 될 수 있는 일시 오류(429, 5xx, 네트워크 끊김).
                파이프라인이 지수 백오프로 재시도한다 (#23). 4xx 요청 오류는 False.
     retry_after_s: 제공자가 알려 준 대기 시간(Retry-After). 없으면 None.
+    overloaded: 모델이 과부하(503, 529)라 응답하지 못함. 다른 모델로 바꾸면 될 수 있어서
+                재시도 후에도 계속되면 대체 모델로 넘어간다 (네트워크 끊김·500과 구분).
     """
 
     code = "LLM_PROVIDER_ERROR"
@@ -50,10 +52,12 @@ class LLMProviderError(LLMError):
         *,
         transient: bool | None = None,
         retry_after_s: float | None = None,
+        overloaded: bool = False,
     ) -> None:
         super().__init__(message)
         self.transient = self.default_transient if transient is None else transient
         self.retry_after_s = retry_after_s
+        self.overloaded = overloaded
 
 
 class LLMRateLimitError(LLMProviderError):
