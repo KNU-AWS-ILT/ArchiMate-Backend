@@ -89,14 +89,35 @@
       "type": "object"
     },
     "CostItem": {
+      "description": "노드 1개의 월 비용. 계산 대상이 아니거나 사용량이 없으면 amount·amountUsd가 null.",
       "properties": {
         "nodeId": {
           "title": "Nodeid",
           "type": "string"
         },
         "amount": {
-          "title": "Amount",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "월 비용(원). 원 단위 반올림",
+          "title": "Amount"
+        },
+        "amountUsd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "월 비용(USD). 소수 둘째 자리 반올림",
+          "title": "Amountusd"
         },
         "note": {
           "anyOf": [
@@ -108,12 +129,14 @@
             }
           ],
           "default": null,
+          "description": "계산 근거 또는 계산하지 못한 이유",
           "title": "Note"
         }
       },
       "required": [
         "nodeId",
-        "amount"
+        "amount",
+        "amountUsd"
       ],
       "title": "CostItem",
       "type": "object"
@@ -499,17 +522,43 @@
       "type": "string"
     },
     "MonthlyCost": {
+      "description": "1안의 월 비용 (Issue #10 C안). 프론트는 값을 그대로 표시만 한다.\n\n- total = items[].amount 합 (null 제외) — 백엔드가 보장\n- 금액은 '항상 무료' 한도를 뺀 실제 청구 예상액. 가입 크레딧은 반영하지 않는다",
       "properties": {
-        "total": {
-          "title": "Total",
-          "type": "number"
-        },
         "currency": {
-          "description": "USD 또는 KRW (API·비용 담당 확정)",
+          "const": "KRW",
+          "default": "KRW",
           "title": "Currency",
           "type": "string"
         },
+        "total": {
+          "description": "월 합계(원)",
+          "title": "Total",
+          "type": "integer"
+        },
+        "totalUsd": {
+          "description": "월 합계(USD)",
+          "title": "Totalusd",
+          "type": "number"
+        },
+        "exchangeRate": {
+          "description": "적용 환율 (1 USD당 원)",
+          "title": "Exchangerate",
+          "type": "number"
+        },
+        "exchangeRateDate": {
+          "description": "환율 기준일",
+          "format": "date",
+          "title": "Exchangeratedate",
+          "type": "string"
+        },
+        "priceDate": {
+          "description": "AWS 단가 기준일",
+          "format": "date",
+          "title": "Pricedate",
+          "type": "string"
+        },
         "freeTier": {
+          "description": "무료 한도 안이라 월 0원인지",
           "title": "Freetier",
           "type": "boolean"
         },
@@ -523,9 +572,16 @@
             }
           ],
           "default": null,
+          "description": "무료 한도 안내 문구",
           "title": "Freetiernote"
         },
+        "overBudget": {
+          "description": "total이 인터뷰 월 예산(monthlyBudget)을 넘는지",
+          "title": "Overbudget",
+          "type": "boolean"
+        },
         "items": {
+          "description": "사용자 노드를 뺀 모든 노드",
           "items": {
             "$ref": "#/$defs/CostItem"
           },
@@ -535,8 +591,12 @@
       },
       "required": [
         "total",
-        "currency",
+        "totalUsd",
+        "exchangeRate",
+        "exchangeRateDate",
+        "priceDate",
         "freeTier",
+        "overBudget",
         "items"
       ],
       "title": "MonthlyCost",

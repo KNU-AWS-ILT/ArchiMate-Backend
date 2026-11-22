@@ -1,0 +1,72 @@
+{
+  "region": "ap-northeast-2",
+  "priceDate": "2026-11-20",
+  "source": "개발용 스냅샷 (서울 리전 온디맨드 공개 단가 근사치). 단가 동기화 Lambda(Price List API) 연결 후 prices 테이블로 교체",
+  "exchangeRate": {
+    "usdKrw": 1380.0,
+    "date": "2026-11-20",
+    "source": "개발용 고정값. 단가 동기화 때 함께 갱신"
+  },
+  "awsLambda": {
+    "perMillionRequests": 0.2,
+    "perGbSecond": 0.0000166667,
+    "freeRequests": 1000000,
+    "freeGbSeconds": 400000
+  },
+  "apiGateway": {
+    "perMillionRequests": 3.5
+  },
+  "s3": {
+    "perGbMonth": 0.025
+  },
+  "cloudfront": {
+    "perGbTransfer": 0.12,
+    "perMillionRequests": 1.2,
+    "freeGbTransfer": 1024,
+    "freeRequests": 10000000
+  },
+  "dynamodb": {
+    "perMillionReads": 0.1413,
+    "perMillionWrites": 0.7063,
+    "perGbMonth": 0.285,
+    "freeStorageGb": 25
+  },
+  "rds": {
+    "perGbMonth": 0.131,
+    "instanceHourly": {
+      "db.t3.micro": 0.026,
+      "db.t3.small": 0.052,
+      "db.t3.medium": 0.104,
+      "db.t4g.micro": 0.025,
+      "db.t4g.small": 0.051,
+      "db.t4g.medium": 0.102
+    }
+  },
+  "ec2": {
+    "instanceHourly": {
+      "t3.micro": 0.013,
+      "t3.small": 0.026,
+      "t3.medium": 0.052,
+      "t4g.micro": 0.0104,
+      "t4g.small": 0.0208,
+      "t4g.medium": 0.0416
+    }
+  },
+  "alb": {
+    "perHour": 0.0225
+  },
+  "natGateway": {
+    "perHour": 0.059,
+    "perGbProcessed": 0.059
+  },
+  "elasticache": {
+    "instanceHourly": {
+      "cache.t3.micro": 0.026,
+      "cache.t3.small": 0.052,
+      "cache.t3.medium": 0.104,
+      "cache.t4g.micro": 0.025,
+      "cache.t4g.small": 0.051,
+      "cache.t4g.medium": 0.102
+    }
+  }
+}

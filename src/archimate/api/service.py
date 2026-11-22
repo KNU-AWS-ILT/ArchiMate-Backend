@@ -9,6 +9,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
 from archimate.llm import AllTiersFailedError, LLMError, explain_node
@@ -21,6 +22,7 @@ from archimate.schemas import (
     DesignResult,
     ErrorCode,
     JobStatus,
+    MonthlyCost,
     NodeExplanation,
     OperationsGuide,
     Requirements,
@@ -33,6 +35,9 @@ from archimate.storage import DesignRepository, JobRecord
 logger = logging.getLogger(__name__)
 
 GenerateFn = Callable[..., Awaitable[object]]
+
+# 생성 Lambda 제한 시간(180초)보다 길다. 이 시간이 지나도 끝나지 않은 job은 Lambda가 강제 종료된 것으로 본다.
+JOB_STALE_AFTER_S = 200
 
 
 # ── id ──────────────────────────────────────────────
@@ -87,8 +92,34 @@ async def create_job(repo: DesignRepository, user_id: str, req: Requirements) ->
     return job_id
 
 
-async def get_job(repo: DesignRepository, job_id: str, user_id: str) -> DesignJob:
-    job = await _get_owned_job(repo, job_id, user_id)
+def _expire_if_stale(job: JobRecord, now: datetime) -> JobRecord:
+    """Lambda가 시간 초과·메모리 부족으로 강제 종료되면 job이 running으로 남아 프론트가 계속 폴링한다.
+    그래서 조회할 때 JOB_STALE_AFTER_S가 지난 작업은 끝난 것으로 응답한다 (저장값은 바꾸지 않는다).
+
+    끝난 안이 있으면 일부 실패(completed), 하나도 없으면 전체 실패(failed + 다시 시도 가능한 error).
+    """
+    if job.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+        return job
+    if (now - job.created_at).total_seconds() <= JOB_STALE_AFTER_S:
+        return job
+    logger.error("job.stale job_id=%s status=%s", job.job_id, job.status)
+    done = {d.tier for d in job.designs}
+    failures = [TierFailure(tier=t, reason="INTERNAL_ERROR") for t in Tier if t not in done]
+    if done:
+        return job.model_copy(update={"status": JobStatus.COMPLETED, "failures": failures})
+    error = to_error_response(
+        ApiError(500, ErrorCode.INTERNAL_ERROR, "작업이 중단됐어요. 다시 시도해 주세요.", retryable=True),
+        request_id=job.job_id,
+    )
+    return job.model_copy(
+        update={"status": JobStatus.FAILED, "failures": failures, "error": error}
+    )
+
+
+async def get_job(
+    repo: DesignRepository, job_id: str, user_id: str, *, now: datetime | None = None
+) -> DesignJob:
+    job = _expire_if_stale(await _get_owned_job(repo, job_id, user_id), now or datetime.now(UTC))
     return DesignJob(
         job_id=job.job_id,
         status=job.status,
@@ -108,6 +139,15 @@ async def get_guide(repo: DesignRepository, design_id: str, user_id: str) -> Ope
 # ── ④-2 생성 (JobRunner가 뒤에서 실행) ───────────────────
 
 
+def _safe_monthly_cost(job_id: str, design: Design, budget: int) -> MonthlyCost | None:
+    """비용 계산이 실패해도 안 자체는 보여 준다 (그 안만 monthlyCost: null)."""
+    try:
+        return estimate_monthly_cost(design, monthly_budget=budget)
+    except Exception:
+        logger.exception("cost.failed job_id=%s tier=%s", job_id, design.tier)
+        return None
+
+
 async def _missing_tiers(
     repo: DesignRepository, job_id: str, job: JobRecord, reason: str
 ) -> list[TierFailure]:
@@ -117,19 +157,38 @@ async def _missing_tiers(
 
 
 async def run_design_job(
-    repo: DesignRepository, job_id: str, *, generate: GenerateFn = llm_generate_designs
+    repo: DesignRepository,
+    job_id: str,
+    *,
+    generate: GenerateFn = llm_generate_designs,
+    mock_delay_s: float = 0.0,
 ) -> None:
-    """3안 생성 → 안마다 비용 계산·저장 → 최종 상태 저장. 실패도 job에 기록하고 예외를 밖으로 내지 않는다."""
+    """3안 생성 → 안마다 비용 계산·저장 → 최종 상태 저장. 실패도 job에 기록하고 예외를 밖으로 내지 않는다.
+
+    mock_delay_s: 프론트 개발용 지연(MOCK_DELAY_S). 고정 응답은 바로 끝나므로
+    queued·running을 각각 이만큼 보여 주고, 안은 Tier 순서대로 이 간격을 두고 저장한다.
+    """
     job = await repo.get_job(job_id)
     if job is None:
         logger.error("job.missing job_id=%s", job_id)
         return
-    await repo.set_status(job_id, JobStatus.RUNNING)
+    if mock_delay_s:
+        await asyncio.sleep(mock_delay_s)  # queued
+    # 비동기 호출은 같은 이벤트가 두 번 올 수 있다. queued인 job만 실행해 LLM 비용이 두 번 들지 않게 한다.
+    if not await repo.claim_job(job_id):
+        logger.warning("job.already_started job_id=%s", job_id)
+        return
+
+    budget = job.requirements.monthly_budget
+    tier_order = list(Tier)
 
     async def on_tier_done(design: Design) -> None:
+        if mock_delay_s:
+            # 안은 병렬로 끝나므로 순서만큼 기다리면 minimal_cost → balanced → scalable 순으로 채워진다
+            await asyncio.sleep(mock_delay_s * (tier_order.index(design.tier) + 1))
         result = DesignResult(
             id=make_design_id(job_id, design.tier),
-            monthly_cost=estimate_monthly_cost(design),
+            monthly_cost=_safe_monthly_cost(job_id, design, budget),
             **design.model_dump(by_alias=False),
         )
         await repo.add_design(job_id, result)
@@ -196,14 +255,14 @@ async def run_design_job(
 # ── ⑤ 노드 설명 ──────────────────────────────────────
 
 
-def _node_cost(design: DesignResult, node_id: str) -> NodeCost | None:
+def node_cost(design: DesignResult, node_id: str) -> NodeCost | None:
     cost = design.monthly_cost
     if cost is None:
         return None
     item: CostItem | None = next((i for i in cost.items if i.node_id == node_id), None)
-    if item is None:
-        return None
-    return NodeCost(amount=item.amount, currency=cost.currency, note=item.note)
+    if item is None or item.amount is None or item.amount_usd is None:
+        return None  # 계산 대상이 아니거나 사용량이 없는 노드
+    return NodeCost(amount=item.amount, amount_usd=item.amount_usd, note=item.note)
 
 
 async def get_explanation(
@@ -227,4 +286,4 @@ async def get_explanation(
         await repo.put_explanation(design_id, node_id, cached)
 
     # 금액은 캐시하지 않고 매번 비용 계산 결과로 채운다 (설명에는 요금 숫자를 넣지 않음)
-    return cached.model_copy(update={"monthly_cost": _node_cost(design, node_id)})
+    return cached.model_copy(update={"monthly_cost": node_cost(design, node_id)})

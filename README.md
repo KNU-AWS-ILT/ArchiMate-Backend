@@ -40,7 +40,7 @@
 * **API 명세**
 
 > `POST /api/v1/designs` → `202 { jobId }` ([요청 예시](contracts/examples/create_design_request.json), [응답 예시](contracts/examples/design_job_accepted.json))
-> `GET /api/v1/designs/jobs/{jobId}` → 진행 상태 + 끝난 안 ([생성 중](contracts/examples/design_job_running.json), [완료](contracts/examples/design_job_completed.json), [스키마](contracts/design_job.schema.json))
+> `GET /api/v1/designs/jobs/{jobId}` → 진행 상태 + 끝난 안 ([생성 중](contracts/examples/design_job_running.json), [완료](contracts/examples/design_job_completed.json), [일부 실패](contracts/examples/design_job_partial_failed.json), [전부 실패](contracts/examples/design_job_failed.json), [스키마](contracts/design_job.schema.json))
 > `GET /api/v1/designs/{designId}/guide` → 운영 절차 ([응답 예시](contracts/examples/operations_guide_minimal_cost.json), [스키마](contracts/operations_guide.schema.json))
 
 ### 3. 노드 설명 `AI 생성`
@@ -62,7 +62,11 @@
 
 * **API 명세**
 
-> 별도 API 없음. 3안 조회 응답의 `designs[].monthlyCost`, 노드 설명의 `monthlyCost`로 내려갑니다. (형식은 API·비용 파트에서 확정)
+> 별도 API 없음. 3안 조회 응답의 `designs[].monthlyCost`, 노드 설명의 `monthlyCost`로 내려갑니다. (형식: Issue #10 C안)
+> - 화면 표시는 KRW(원 단위), USD 원금액·환율·기준일을 함께 제공. `total`은 `items[].amount` 합과 항상 같습니다.
+> - 금액은 '항상 무료' 한도(Lambda·CloudFront·DynamoDB)를 뺀 값이고, 가입 크레딧은 반영하지 않습니다.
+> - 계산 대상이 아닌 서비스·사용량이 없는 노드는 `amount: null` + `note`. 예산 초과는 `overBudget`.
+> - 개발 중 단가는 `src/archimate/pricing/snapshots/`의 서울 리전 스냅샷(근사치)을 씁니다.
 
 ### 공통: 에러 응답
 
@@ -128,7 +132,7 @@ ArchiMate-Backend/
 │   │   ├── validation.py             의미 검증 (노드 연결, 그룹 계층, 필수 사용량)
 │   │   └── settings.py · errors.py   LLM 설정, 예외
 │   ├── api/                      💰 생성 작업·결과 조회, 3안 비교 가공, 로컬 FastAPI 앱
-│   ├── pricing/                  💰 단가 동기화(Price List API), 월 비용·Free Tier 계산
+│   ├── pricing/                  💰 월 비용·Free Tier 계산, 단가 스냅샷(snapshots/)
 │   ├── storage/                  💰 DynamoDB 데이터 모델·리포지토리 (designs, prices, explanations)
 │   └── handlers/                 Lambda 진입점 (이벤트 파싱·응답 변환만)
 │       ├── generate.py               🧠 설계 생성 Lambda (접수·비동기 생성·조회)
@@ -140,7 +144,6 @@ ArchiMate-Backend/
 │   ├── llm/try_generate.py       🧠 생성 파이프라인 수동 실행
 │   └── export_contracts.py       🤝 contracts/ 생성
 ├── evals/llm/                    🧠 대표 시나리오 5종 평가
-├── data/pricing/                 💰 AWS 가격 데이터
 ├── .github/CODEOWNERS            영역별 자동 리뷰어 지정
 ├── .env.example                  환경 변수 템플릿
 └── pyproject.toml                의존성·린트·테스트 설정
@@ -194,6 +197,27 @@ python scripts/export_contracts.py                         # 스키마 변경 �
 ruff check . && ruff format . && pytest                    # 린트·포맷·테스트
 ```
 
+### 개발 서버 배포 (Railway)
+
+> 프론트가 실제 API로 연동해 볼 개발 서버입니다. 모킹 LLM이라 비용이 들지 않습니다. 결제 수단 등록·유료 플랜 업그레이드는 하지 않습니다(코딩 컨벤션 1장).
+
+`railway.json`에 시작 명령(`uvicorn ... --port $PORT`)과 헬스 체크(`/api/v1/health`)가 들어 있어서, Railway에서 이 저장소를 연결하면 별도 설정 없이 배포됩니다.
+
+1. Railway에서 New Project → Deploy from GitHub repo → `ArchiMate-Backend` 선택
+2. Variables에 아래 값을 넣습니다. API 키는 넣지 않습니다.
+
+   | 변수 | 값 |
+   | :--- | :--- |
+   | `LLM_PROVIDER` | `mock` |
+   | `API_CORS_ORIGINS` | `["http://localhost:3000","https://프론트-배포-주소"]` |
+   | `MOCK_DELAY_S` | `2` (프론트가 진행 화면을 볼 수 있게 queued → running → 안이 하나씩 채워지는 흐름을 재현) |
+
+3. Settings → Networking → Generate Domain 으로 주소를 만들고 `https://<주소>/docs`에서 확인합니다.
+
+주의: 저장소가 메모리라서 재배포·재시작하면 작업 결과가 사라집니다. 사용자는 `X-User-Id` 헤더로 구분합니다(Cognito는 AWS 배포에서 적용).
+
+생성 작업이 같은 프로세스의 메모리에서 돌기 때문에 워커 수(--workers)나 인스턴스 수를 2개 이상으로 늘리면 조회가 404가 될 수 있습니다. 개발 서버는 워커 1개, 인스턴스 1개로 유지하세요.
+
 ---
 
 ## 📋 API 구성
@@ -211,13 +235,13 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 
 ## 🗄️ 데이터베이스 구조
 
-> Amazon DynamoDB (온디맨드) — 세부 설계는 API·비용 파트
+> Amazon DynamoDB (온디맨드). 키·테이블 환경 변수·TTL은 [#15](https://github.com/KNU-AWS-ILT/ArchiMate-Backend/issues/15)에서 확정했고, 구현은 `src/archimate/storage/dynamodb.py`
 
 | 테이블 | 키 | 내용 | 보존 |
 | :--- | :--- | :--- | :--- |
-| `designs` | userId / jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용 | 보존 + PITR |
-| `prices` | service / region#usageType | 서비스별 단가 | 매일 덮어쓰기 |
-| `explanations` | service / context | 노드 설명 캐시 | TTL 30일 |
+| `designs` | jobId | 인터뷰 답변, 진행 상태, 3안 JSON(운영 절차 포함), 월 비용. `userId` 속성으로 소유자 확인 | TTL 30일 (`expiresAt`) |
+| `prices` | service / regionUsageType (값 예: `ap-northeast-2#Requests`) | 서비스별 단가 | 매일 덮어쓰기 (TTL 없음) |
+| `explanations` | designId / nodeId | 노드 설명 캐시 | TTL 30일 (`expiresAt`) |
 
 ---
 
@@ -240,6 +264,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
 | `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
 | `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
+| `MOCK_DELAY_S` | 모킹 지연(초, 기본 0). 예: `2`면 queued 2초 → running → 안이 2초 간격으로 하나씩 채워짐. `LLM_PROVIDER=mock`일 때만 적용 |
 
 ---
 
