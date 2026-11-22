@@ -88,3 +88,35 @@ async def test_eval_records_failures():
     summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
     assert "미달" in summary and "`LLM_INVALID_OUTPUT`: 1회" in summary
 
+
+async def test_eval_counts_filled_defaults():
+    class MissingRdsHours(MockProvider):
+        """균형안 RDS의 hoursPerMonth·storageGb를 빠뜨린다 (파이프라인이 기본값으로 채움)."""
+
+        async def generate_json(self, *, system, messages, output_model):
+            raw = await super().generate_json(
+                system=system, messages=messages, output_model=output_model
+            )
+            if (
+                issubclass(output_model, DesignDraft)
+                and "<tier>balanced</tier>" in messages[0].content
+            ):
+                data = json.loads(raw)
+                for n in data["architecture"]["nodes"]:
+                    if n["serviceType"] == "rds":
+                        n["usage"].pop("hoursPerMonth")
+                        n["usage"].pop("storageGb")
+                raw = json.dumps(data)
+            return raw
+
+    scenarios = run_eval.load_scenarios(only=["demo_club_recruit"])
+    runs, tiers, invalid = await run_eval.run_eval(
+        scenarios, runs=1, provider=MissingRdsHours(), settings=settings()
+    )
+    assert {t.tier: t.filled_defaults for t in tiers} == {
+        "minimal_cost": 0,
+        "balanced": 2,
+        "scalable": 0,
+    }
+    summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
+    assert "| 기본값 채움 |" in summary

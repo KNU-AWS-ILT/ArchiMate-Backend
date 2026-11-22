@@ -61,6 +61,9 @@ class TierRow:
     validation_attempts: int  # 설계 요청 횟수 (1 = 재시도 없음)
     transient_retries: int
     fallback: bool
+    filled_defaults: (
+        int  # 모델이 빠뜨려 기본값으로 채운 사용량 필드 수 (모델이 기본값에 얼마나 기대는지)
+    )
 
 
 @dataclass
@@ -78,6 +81,7 @@ class _LogStats:
     attempts: Counter = field(default_factory=Counter)
     transient: Counter = field(default_factory=Counter)
     fallback: set = field(default_factory=set)
+    filled: Counter = field(default_factory=Counter)
     invalid: list = field(default_factory=list)  # 검증 실패 메시지 (실패 유형 정리용)
 
 
@@ -100,6 +104,9 @@ class _Capture(logging.Handler):
             self.stats.transient[label] += 1
         elif msg.startswith("llm.fallback "):
             self.stats.fallback.add(label)
+        elif msg.startswith("llm.filled_defaults "):
+            # fields=['rds.hoursPerMonth', ...] — 노드 id에는 '.'이 없어서 '.' 수 = 필드 수
+            self.stats.filled[label] += msg.split("fields=", 1)[1].count(".")
         elif msg.startswith("llm.invalid_output ") and label.startswith("design:"):
             self.stats.invalid.append(msg)
 
@@ -186,6 +193,7 @@ async def run_once(
                 validation_attempts=stats.attempts[label],
                 transient_retries=stats.transient[label] + stats.transient[f"operations:{tier}"],
                 fallback=label in stats.fallback or f"operations:{tier}" in stats.fallback,
+                filled_defaults=stats.filled[label],
             )
         )
     run_row = RunRow(
@@ -258,15 +266,15 @@ def summarize(
         f"- 목표: 생성 성공률 {_pct(TARGET_SUCCESS_RATE)} 이상, 응답 시간 {TARGET_SECONDS:.0f}초 이내",
         "",
         "| 시나리오 | 상태 | 실행 | 성공률(안) | 3안 모두 성공 | 평균 시간 | 최대 시간 "
-        "| 60초 이내 | 검증 재시도 | 일시 오류 재시도 | 대체 모델 |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 60초 이내 | 검증 재시도 | 일시 오류 재시도 | 대체 모델 | 기본값 채움 |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for sid, trows in by_scenario_tiers.items():
         rrows = by_scenario_runs[sid]
         secs = [r.seconds for r in rrows]
         lines.append(
             "| {title} | {status} | {n} | {rate} | {all_ok} | {avg:.1f}s | {mx:.1f}s | {fast} "
-            "| {vr} | {tr} | {fb} |".format(
+            "| {vr} | {tr} | {fb} | {fd} |".format(
                 title=titles[sid].title,
                 status="확정" if titles[sid].status == "confirmed" else "초안",
                 n=len(rrows),
@@ -278,6 +286,7 @@ def summarize(
                 vr=sum(max(t.validation_attempts - 1, 0) for t in trows),
                 tr=sum(t.transient_retries for t in trows),
                 fb=sum(t.fallback for t in trows),
+                fd=sum(t.filled_defaults for t in trows),
             )
         )
 
