@@ -112,7 +112,7 @@ class _ProviderCall:
                         system=system, messages=messages, output_model=output_model
                     )
             except TimeoutError as e:
-                raise LLMTimeoutError(f"{self._label}: {timeout_s:.0f}초 안에 응답 없음") from e
+                raise LLMTimeoutError(f"{self._label}: {timeout_s:.3g}초 안에 응답 없음") from e
             except LLMProviderError as e:
                 if not e.transient:
                     raise

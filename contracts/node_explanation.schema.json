@@ -51,15 +51,23 @@
       "type": "string"
     },
     "NodeCost": {
-      "description": "⚠️ 초안 — 비용 형식은 백엔드(API·비용) 담당이 확정한다.",
+      "description": "노드 1개의 월 비용 (Issue #10). 3안 응답의 monthlyCost.items[]와 같은 값.",
       "properties": {
-        "amount": {
-          "title": "Amount",
-          "type": "number"
-        },
         "currency": {
+          "const": "KRW",
+          "default": "KRW",
           "title": "Currency",
           "type": "string"
+        },
+        "amount": {
+          "description": "월 비용(원)",
+          "title": "Amount",
+          "type": "integer"
+        },
+        "amountUsd": {
+          "description": "월 비용(USD)",
+          "title": "Amountusd",
+          "type": "number"
         },
         "note": {
           "anyOf": [
@@ -71,12 +79,13 @@
             }
           ],
           "default": null,
+          "description": "계산 근거",
           "title": "Note"
         }
       },
       "required": [
         "amount",
-        "currency"
+        "amountUsd"
       ],
       "title": "NodeCost",
       "type": "object"
