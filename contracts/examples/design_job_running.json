@@ -331,7 +331,55 @@
         ]
       },
       "id": "job_demo_minimal_cost",
-      "monthlyCost": null
+      "monthlyCost": {
+        "currency": "KRW",
+        "total": 1147,
+        "totalUsd": 0.83,
+        "exchangeRate": 1380.0,
+        "exchangeRateDate": "2026-11-20",
+        "priceDate": "2026-11-20",
+        "freeTier": false,
+        "freeTierNote": "Lambda·CloudFront·DynamoDB 항상 무료 한도를 빼고 계산했어요. 계산에서 빠진 항목은 합계에 포함되지 않았어요. (가입 크레딧은 반영하지 않았어요)",
+        "overBudget": false,
+        "items": [
+          {
+            "nodeId": "cdn",
+            "amount": 0,
+            "amountUsd": 0.0,
+            "note": "요청 월 30만 건, 전송 5GB 기준 · 무료 한도 적용"
+          },
+          {
+            "nodeId": "web_bucket",
+            "amount": 35,
+            "amountUsd": 0.03,
+            "note": "저장 1GB 기준 (요청 요금 제외)"
+          },
+          {
+            "nodeId": "api_gw",
+            "amount": 966,
+            "amountUsd": 0.7,
+            "note": "REST API 요청 월 20만 건 기준"
+          },
+          {
+            "nodeId": "api_lambda",
+            "amount": 0,
+            "amountUsd": 0.0,
+            "note": "요청 월 20만 건, 256MB·200ms 기준 · 무료 한도 적용"
+          },
+          {
+            "nodeId": "app_db",
+            "amount": 146,
+            "amountUsd": 0.11,
+            "note": "온디맨드 읽기 월 50만 건, 쓰기 5만 건, 저장 1GB 기준 · 무료 한도 적용"
+          },
+          {
+            "nodeId": "logs",
+            "amount": null,
+            "amountUsd": null,
+            "note": "비용 계산 대상이 아니에요"
+          }
+        ]
+      }
     }
   ],
   "failures": [],
