@@ -4,6 +4,8 @@
 설명에는 요금 숫자를 넣지 않는다. 금액은 비용 계산 결과로 채운다.
 """
 
+from typing import Literal
+
 from pydantic import Field
 
 from archimate.schemas.base import CamelModel
@@ -30,11 +32,12 @@ class Alternative(CamelModel):
 
 
 class NodeCost(CamelModel):
-    """⚠️ 초안 — 비용 형식은 백엔드(API·비용) 담당이 확정한다."""
+    """노드 1개의 월 비용 (Issue #10). 3안 응답의 monthlyCost.items[]와 같은 값."""
 
-    amount: float
-    currency: str
-    note: str | None = None
+    currency: Literal["KRW"] = "KRW"
+    amount: int = Field(description="월 비용(원)")
+    amount_usd: float = Field(description="월 비용(USD)")
+    note: str | None = Field(default=None, description="계산 근거")
 
 
 class NodeExplanation(CamelModel):

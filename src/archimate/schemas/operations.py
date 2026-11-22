@@ -4,7 +4,7 @@
 초보자 대상이므로 AWS CLI 대신 콘솔 경로로 안내한다.
 """
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from archimate.schemas.base import CamelModel
 
@@ -21,6 +21,14 @@ class GuideStep(CamelModel):
         default=None, description="AWS 콘솔 경로, 예: 'Lambda > 함수 > 함수 생성'"
     )
     warn: str | None = Field(default=None, description="주의 문구 (없으면 null)")
+
+    @field_validator("console_path", "warn", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v: object) -> object:
+        # LLM이 "없음"을 빈 문자열로 내도 프론트에는 항상 null로 보낸다 (#13)
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
 
 
 class GuidePhase(CamelModel):

@@ -4,7 +4,13 @@ import pytest
 
 from archimate.api import service
 from archimate.api.errors import ApiError
-from archimate.llm import AllTiersFailedError, LLMOutputError, LLMTimeoutError, build_requirements
+from archimate.llm import (
+    AllTiersFailedError,
+    LLMOutputError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+    build_requirements,
+)
 from archimate.llm.providers.mock import load_fixture
 from archimate.schemas import (
     Design,
@@ -67,6 +73,62 @@ async def test_all_failed_sets_error(req):
     assert job.error.request_id == job_id
 
 
+async def test_all_failed_with_same_cause_uses_that_cause(req):
+    # #21: 셋 다 한도 초과면 일반 실패가 아니라 RATE_LIMITED로 알려 준다
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    async def fake_generate(_req, *, on_tier_done):
+        raise AllTiersFailedError(
+            failures=[TierFailure(tier=t, reason="LLM_RATE_LIMITED") for t in Tier],
+            causes=[LLMRateLimitError("한도") for _ in Tier],
+        )
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.status == JobStatus.FAILED
+    assert [f.reason for f in job.failures] == ["LLM_RATE_LIMITED"] * 3
+    assert job.error is not None and job.error.code == ErrorCode.RATE_LIMITED
+
+
+async def test_all_failed_with_mixed_causes_keeps_tier_reasons(req):
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+    failures = [
+        TierFailure(tier=Tier.MINIMAL_COST, reason="LLM_RATE_LIMITED"),
+        TierFailure(tier=Tier.BALANCED, reason="LLM_TIMEOUT"),
+        TierFailure(tier=Tier.SCALABLE, reason="LLM_INVALID_OUTPUT"),
+    ]
+
+    async def fake_generate(_req, *, on_tier_done):
+        raise AllTiersFailedError(
+            failures=failures,
+            causes=[LLMRateLimitError("a"), LLMTimeoutError("b"), LLMOutputError("c")],
+        )
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.failures == failures
+    assert job.error is not None and job.error.code == ErrorCode.DESIGN_GENERATION_FAILED
+
+
+async def test_single_tier_mode_failure_reports_one_tier(req):
+    # #14: 1안 모드에서 실패하면 시도한 1개 안만 failures에 들어간다
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    async def fake_generate(_req, *, on_tier_done):
+        raise AllTiersFailedError(
+            failures=[TierFailure(tier=Tier.MINIMAL_COST, reason="LLM_TIMEOUT")],
+            causes=[LLMTimeoutError("느림")],
+        )
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert [(f.tier, f.reason) for f in job.failures] == [(Tier.MINIMAL_COST, "LLM_TIMEOUT")]
+    assert job.error is not None and job.error.code == ErrorCode.LLM_TIMEOUT
+
+
 async def test_timeout_maps_to_llm_timeout(req):
     repo = InMemoryRepository()
     job_id = await service.create_job(repo, "u1", req)
@@ -123,3 +185,23 @@ def test_design_id_roundtrip(tier):
 @pytest.mark.parametrize("bad", ["", "job_abc", "_minimal_cost", "job_abc_unknown"])
 def test_parse_design_id_rejects(bad):
     assert service.parse_design_id(bad) is None
+
+
+async def test_cost_failure_keeps_design(req, monkeypatch):
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    def broken_cost(*_args, **_kwargs):
+        raise RuntimeError("price table down")
+
+    monkeypatch.setattr(service, "estimate_monthly_cost", broken_cost)
+
+    async def fake_generate(_req, *, on_tier_done):
+        design = fixture_design(Tier.MINIMAL_COST)
+        await on_tier_done(design)
+        return DesignSet(designs=[design])
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.status == JobStatus.COMPLETED
+    assert job.designs[0].monthly_cost is None
