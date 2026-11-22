@@ -56,8 +56,10 @@ def render_requirements(req: Requirements) -> str:
     ]
     body = "\n".join(lines)
     if req.free_text:
-        # 자유 서술은 사용자 입력이므로 태그로 감싸 지시문과 구분한다
-        body += f"\n- 자유 서술:\n<user_description>\n{req.free_text}\n</user_description>"
+        # 자유 서술은 사용자 입력이므로 태그로 감싸 지시문과 구분한다.
+        # 사용자가 닫는 태그를 직접 써서 태그 밖으로 나가지 못하게 꺾쇠를 바꾼다.
+        text = req.free_text.replace("<", "‹").replace(">", "›")
+        body += f"\n- 자유 서술 (보충 설명):\n<user_description>\n{text}\n</user_description>"
     return body
 
 

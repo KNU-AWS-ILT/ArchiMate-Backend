@@ -21,7 +21,7 @@ ArchiMate 백엔드 API. 인터뷰 답변으로 AWS 구성 3안(최소비용·�
 
 - 필드명은 camelCase, 열거형 값은 snake_case, 에러 `code`는 UPPER_SNAKE_CASE
 - 모든 에러는 `{ code, message, retryable, requestId }` 모양
-- 개발 중에는 `X-User-Id` 헤더로 사용자를 구분한다 (최종은 Cognito 로그인)
+- 로컬 개발에서는 `X-User-Id` 헤더로 사용자를 구분한다 (Lambda에서는 Cognito 로그인 sub를 쓰고 헤더는 무시)
 """
 
 TAGS = [
@@ -60,6 +60,8 @@ def create_app(
     app.state.repo = repo
     app.state.runner = runner
 
+    # 요청 id·500 처리 미들웨어를 먼저 추가하고 CORS를 나중에 추가해야 CORS가 바깥에서 감싼다
+    install_error_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -67,7 +69,6 @@ def create_app(
         allow_headers=["Content-Type", "Authorization", "X-User-Id", REQUEST_ID_HEADER],
         expose_headers=[REQUEST_ID_HEADER],
     )
-    install_error_handlers(app)
     app.include_router(router)
     _drop_default_422(app)
     return app
