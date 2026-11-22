@@ -7,6 +7,7 @@
 
 from typing import Any
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -17,6 +18,7 @@ from archimate.llm.errors import (
     LLMOutputError,
     LLMProviderError,
     LLMRateLimitError,
+    LLMTimeoutError,
 )
 from archimate.llm.providers.base import ChatMessage
 
@@ -83,7 +85,13 @@ class GeminiProvider:
                 raise LLMRateLimitError(f"Gemini 무료 한도 초과: {e}") from e
             if e.code in (401, 403):
                 raise LLMConfigError(f"Gemini 인증 오류: {e}") from e
-            raise LLMProviderError(str(e)) from e
+            # 500·503(과부하)·504는 일시 오류. 개발 중 무료 티어에서 503이 실제로 났다 (#23)
+            raise LLMProviderError(str(e), transient=e.code >= 500) from e
+        except httpx.TimeoutException as e:
+            raise LLMTimeoutError(f"Gemini 응답 시간 초과: {e!r}") from e
+        except httpx.TransportError as e:
+            # 네트워크 끊김 등 (httpx는 google-genai가 쓰는 HTTP 클라이언트)
+            raise LLMProviderError(f"Gemini 연결 오류: {e!r}", transient=True) from e
 
         candidate = response.candidates[0] if response.candidates else None
         finish = candidate.finish_reason if candidate else None
