@@ -185,3 +185,23 @@ def test_design_id_roundtrip(tier):
 @pytest.mark.parametrize("bad", ["", "job_abc", "_minimal_cost", "job_abc_unknown"])
 def test_parse_design_id_rejects(bad):
     assert service.parse_design_id(bad) is None
+
+
+async def test_cost_failure_keeps_design(req, monkeypatch):
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    def broken_cost(*_args, **_kwargs):
+        raise RuntimeError("price table down")
+
+    monkeypatch.setattr(service, "estimate_monthly_cost", broken_cost)
+
+    async def fake_generate(_req, *, on_tier_done):
+        design = fixture_design(Tier.MINIMAL_COST)
+        await on_tier_done(design)
+        return DesignSet(designs=[design])
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.status == JobStatus.COMPLETED
+    assert job.designs[0].monthly_cost is None

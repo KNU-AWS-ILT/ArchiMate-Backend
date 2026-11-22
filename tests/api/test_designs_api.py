@@ -41,7 +41,10 @@ def test_full_flow(client, demo_answers):
     assert {d["tier"] for d in job["designs"]} == {"minimal_cost", "balanced", "scalable"}
     for d in job["designs"]:
         assert d["id"] == f"{job_id}_{d['tier']}"
-        assert d["monthlyCost"] is None  # Issue #10 확정 전
+        cost = d["monthlyCost"]
+        assert cost["currency"] == "KRW"
+        assert cost["total"] == sum(i["amount"] for i in cost["items"] if i["amount"] is not None)
+        assert "users" not in {i["nodeId"] for i in cost["items"]}
 
     design_id = f"{job_id}_minimal_cost"
     guide = client.get(f"{BASE}/designs/{design_id}/guide")
@@ -54,6 +57,19 @@ def test_full_flow(client, demo_answers):
     assert body["nodeId"] == "app_db"
     assert body["serviceType"] == "dynamodb"
     assert body["alternatives"]
+    # 노드 설명 금액 = 3안 응답의 같은 노드 금액
+    design = next(d for d in job["designs"] if d["id"] == design_id)
+    item = next(i for i in design["monthlyCost"]["items"] if i["nodeId"] == "app_db")
+    assert body["monthlyCost"] == {
+        "currency": "KRW",
+        "amount": item["amount"],
+        "amountUsd": item["amountUsd"],
+        "note": item["note"],
+    }
+    # 계산 대상이 아닌 노드(CloudWatch)는 monthlyCost: null
+    logs = client.get(f"{BASE}/designs/{design_id}/nodes/logs/explanation")
+    assert logs.status_code == 200, logs.text
+    assert logs.json()["monthlyCost"] is None
 
 
 def test_explanation_is_cached(client, repo, demo_answers):
