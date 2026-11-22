@@ -194,6 +194,24 @@ python scripts/export_contracts.py                         # 스키마 변경 �
 ruff check . && ruff format . && pytest                    # 린트·포맷·테스트
 ```
 
+### 개발 서버 배포 (Railway)
+
+> 프론트가 실제 API로 연동해 볼 개발 서버입니다. 모킹 LLM이라 비용이 들지 않습니다. 결제 수단 등록·유료 플랜 업그레이드는 하지 않습니다(코딩 컨벤션 1장).
+
+`railway.json`에 시작 명령(`uvicorn ... --port $PORT`)과 헬스 체크(`/api/v1/health`)가 들어 있어서, Railway에서 이 저장소를 연결하면 별도 설정 없이 배포됩니다.
+
+1. Railway에서 New Project → Deploy from GitHub repo → `ArchiMate-Backend` 선택
+2. Variables에 아래 값을 넣습니다. API 키는 넣지 않습니다.
+
+   | 변수 | 값 |
+   | :--- | :--- |
+   | `LLM_PROVIDER` | `mock` |
+   | `API_CORS_ORIGINS` | `["http://localhost:3000","https://프론트-배포-주소"]` |
+
+3. Settings → Networking → Generate Domain 으로 주소를 만들고 `https://<주소>/docs`에서 확인합니다.
+
+주의: 저장소가 메모리라서 재배포·재시작하면 작업 결과가 사라집니다. 사용자는 `X-User-Id` 헤더로 구분합니다(Cognito는 AWS 배포에서 적용).
+
 ---
 
 ## 📋 API 구성
