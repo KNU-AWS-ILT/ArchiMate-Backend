@@ -6,7 +6,6 @@ import pytest
 
 from archimate.handlers import _app, explain, generate
 from archimate.llm.providers.mock import load_fixture
-from tests.storage.test_dynamodb import repo  # noqa: F401  (moto 테이블 + 환경 변수 fixture)
 
 
 class FakeLambdaClient:
@@ -18,7 +17,7 @@ class FakeLambdaClient:
 
 
 @pytest.fixture
-def lambda_client(repo, monkeypatch):  # noqa: F811
+def lambda_client(repo, monkeypatch):
     client = FakeLambdaClient()
     monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "archimate-generate")
     real = generate.LambdaJobRunner

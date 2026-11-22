@@ -118,11 +118,11 @@ class DynamoDBRepository:
 
     async def _update(self, job_id: str, **kwargs: Any) -> None:
         """없는 job을 갱신하면 새로 만들지 않고 KeyError (InMemoryRepository와 같은 동작)."""
+        kwargs.setdefault("ConditionExpression", "attribute_exists(jobId)")
         try:
             await asyncio.to_thread(
                 self._designs.update_item,
                 Key={"jobId": job_id},
-                ConditionExpression="attribute_exists(jobId)",
                 **kwargs,
             )
         except ClientError as e:
@@ -137,6 +137,25 @@ class DynamoDBRepository:
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={":s": status.value},
         )
+
+    async def claim_job(self, job_id: str) -> bool:
+        try:
+            await self._update(
+                job_id,
+                UpdateExpression="SET #s = :running",
+                ConditionExpression="attribute_exists(jobId) AND #s = :queued",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":running": JobStatus.RUNNING.value,
+                    ":queued": JobStatus.QUEUED.value,
+                },
+            )
+        except KeyError:
+            # 없는 job과 이미 시작된 job 모두 조건 실패로 오므로 get으로 구분한다
+            if await self.get_job(job_id) is None:
+                raise
+            return False
+        return True
 
     async def add_design(self, job_id: str, design: DesignResult) -> None:
         await self._update(

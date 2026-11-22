@@ -3,49 +3,17 @@
 import asyncio
 import json
 import os
+from datetime import timedelta
 
 os.environ["LLM_PROVIDER"] = "mock"
-os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
-import boto3  # noqa: E402
 import pytest  # noqa: E402
-from moto import mock_aws  # noqa: E402
 
 from archimate.api import service  # noqa: E402
 from archimate.llm import build_requirements  # noqa: E402
 from archimate.llm.providers.mock import load_fixture  # noqa: E402
 from archimate.schemas import ErrorCode, ErrorResponse, JobStatus, Tier, TierFailure  # noqa: E402
 from archimate.storage import JobRecord  # noqa: E402
-from archimate.storage.dynamodb import DynamoDBRepository  # noqa: E402
-
-
-@pytest.fixture
-def repo(monkeypatch):
-    for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
-        monkeypatch.setenv(k, "test")
-    with mock_aws():
-        db = boto3.resource("dynamodb")
-        db.create_table(
-            TableName="designs",
-            KeySchema=[{"AttributeName": "jobId", "KeyType": "HASH"}],
-            AttributeDefinitions=[{"AttributeName": "jobId", "AttributeType": "S"}],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        db.create_table(
-            TableName="explanations",
-            KeySchema=[
-                {"AttributeName": "designId", "KeyType": "HASH"},
-                {"AttributeName": "nodeId", "KeyType": "RANGE"},
-            ],
-            AttributeDefinitions=[
-                {"AttributeName": "designId", "AttributeType": "S"},
-                {"AttributeName": "nodeId", "AttributeType": "S"},
-            ],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        monkeypatch.setenv("DESIGNS_TABLE", "designs")
-        monkeypatch.setenv("EXPLANATIONS_TABLE", "explanations")
-        yield DynamoDBRepository.from_env()
 
 
 @pytest.fixture
@@ -123,3 +91,79 @@ async def test_concurrent_add_design_keeps_all(repo, req):
     await repo.create_job(JobRecord(job_id="job_2", user_id="u1", requirements=req))
     await asyncio.gather(*(repo.add_design("job_2", r) for r in results))
     assert {d.id for d in (await repo.get_job("job_2")).designs} == {r.id for r in results}
+
+
+# ── 리뷰 반영: 중복 실행 방지 · 정체 job · 취소 시 failures 모양 ──────────────────
+
+
+async def test_claim_job_only_once(repo, req):
+    await repo.create_job(JobRecord(job_id="job_1", user_id="u1", requirements=req))
+    assert await repo.claim_job("job_1") is True
+    assert (await repo.get_job("job_1")).status == JobStatus.RUNNING
+    assert await repo.claim_job("job_1") is False
+    with pytest.raises(KeyError):
+        await repo.claim_job("nope")
+
+
+async def test_duplicate_run_event_generates_once(repo, req):
+    calls = 0
+
+    async def fake_generate(_req, *, on_tier_done):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("stop")
+
+    job_id = await service.create_job(repo, "u1", req)
+    await asyncio.gather(
+        service.run_design_job(repo, job_id, generate=fake_generate),
+        service.run_design_job(repo, job_id, generate=fake_generate),
+    )
+    assert calls == 1
+
+
+async def test_stale_running_job_is_reported_failed(repo, req):
+    job_id = await service.create_job(repo, "u1", req)
+    await repo.claim_job(job_id)
+    created = (await repo.get_job(job_id)).created_at
+
+    fresh = await service.get_job(repo, job_id, "u1", now=created + timedelta(seconds=100))
+    assert fresh.status == JobStatus.RUNNING
+
+    stale = await service.get_job(repo, job_id, "u1", now=created + timedelta(seconds=201))
+    assert stale.status == JobStatus.FAILED
+    assert stale.error.retryable is True
+    assert {f.tier for f in stale.failures} == set(Tier)
+
+
+async def test_stale_job_with_finished_design_is_completed_with_failures(repo, req):
+    job_id = await service.create_job(repo, "u1", req)
+    await service.run_design_job(repo, job_id)
+    done = await repo.get_job(job_id)
+    keep, rest = done.designs[0], done.designs[1:]
+    # 3안 중 1안만 저장된 채 멈춘 상태를 만든다
+    await repo.create_job(JobRecord(job_id="job_2", user_id="u1", requirements=req))
+    await repo.claim_job("job_2")
+    await repo.add_design("job_2", keep)
+    created = (await repo.get_job("job_2")).created_at
+
+    job = await service.get_job(repo, "job_2", "u1", now=created + timedelta(seconds=300))
+    assert job.status == JobStatus.COMPLETED
+    assert job.error is None
+    assert {f.tier for f in job.failures} == {d.tier for d in rest}
+
+
+async def test_cancelled_job_saves_tier_failures(repo, req):
+    async def never_finishes(*_args, **_kwargs):
+        await asyncio.sleep(60)
+
+    job_id = await service.create_job(repo, "u1", req)
+    task = asyncio.create_task(service.run_design_job(repo, job_id, generate=never_finishes))
+    await asyncio.sleep(0.2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    job = await service.get_job(repo, job_id, "u1")  # API 응답 모양으로 만들어도 깨지지 않는다
+    assert job.status == JobStatus.FAILED
+    assert job.error.retryable is True
+    assert {f.tier for f in job.failures} == set(Tier)
