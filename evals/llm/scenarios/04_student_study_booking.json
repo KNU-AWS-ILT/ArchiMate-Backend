@@ -1,0 +1,17 @@
+{
+  "id": "student_study_booking",
+  "title": "학생 팀 프로젝트: 스터디룸 예약 (예산 0원, Free Tier)",
+  "persona": "학생 프로젝트 팀",
+  "status": "draft",
+  "note": "PM 확인 필요. 예산 0원 → Free Tier 안에서만 설계하는지",
+  "answers": {
+    "serviceType": "web_app",
+    "concurrentUsers": "under_100",
+    "monthlyBudget": 0,
+    "awsExperience": "none",
+    "dataStorage": ["relational"],
+    "trafficPattern": "business_hours",
+    "availability": "best_effort",
+    "freeText": "수업 팀 프로젝트로 만든 학과 스터디룸 예약 사이트예요. 발표 때 보여 줄 거라 Free Tier 안에서만 운영하고 싶어요."
+  }
+}
