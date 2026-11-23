@@ -95,7 +95,11 @@ async def test_guide_failure_keeps_design(req):
 
 
 async def test_on_tier_done_is_called_as_each_tier_finishes(req):
-    delays = {Tier.MINIMAL_COST: 0.06, Tier.BALANCED: 0.0, Tier.SCALABLE: 0.03}
+    delays = {
+        Tier.MINIMAL_COST: 0.4,
+        Tier.BALANCED: 0.0,
+        Tier.SCALABLE: 0.2,
+    }  # 느린 CI에서도 순서가 바뀌지 않게 0.2초 간격
 
     class Staggered(MockProvider):
         async def generate_json(self, *, system, messages, output_model):
