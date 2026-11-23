@@ -218,6 +218,19 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 
 생성 작업이 같은 프로세스의 메모리에서 돌기 때문에 워커 수(--workers)나 인스턴스 수를 2개 이상으로 늘리면 조회가 404가 될 수 있습니다. 개발 서버는 워커 1개, 인스턴스 1개로 유지하세요.
 
+### Lambda 배포 패키지 (AWS)
+
+Lambda(Python 3.12, ARM64)는 `src/`만으로는 실행되지 않고 의존성이 함께 있어야 합니다. 배포용 최소 의존성은 `requirements-lambda.txt`에 있고(`google-genai`·`uvicorn`처럼 Lambda에서 쓰지 않는 패키지는 뺐습니다), 아래 스크립트가 의존성과 `archimate/`를 한 폴더에 모읍니다.
+
+```shell
+python scripts/build_lambda.py                       # build/lambda (ARM64용, 약 42MB)
+python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인용)
+```
+
+- 인프라(CDK)는 `build/lambda` 폴더를 그대로 Lambda 코드로 묶으면 됩니다. 핸들러는 `archimate.handlers.generate.handler` 등 그대로입니다.
+- ARM64용 wheel(`pydantic-core`, `jiter`)을 받을 뿐 실행하지 않아서 어떤 PC에서도 만들 수 있습니다.
+- 코드에서 `requirements-lambda.txt`에 없는 외부 패키지를 모듈 맨 위에서 import하면 `tests/test_lambda_requirements.py`가 실패합니다.
+
 ---
 
 ## 📋 API 구성
