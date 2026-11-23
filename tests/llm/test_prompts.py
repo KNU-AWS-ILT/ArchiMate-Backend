@@ -88,7 +88,8 @@ def test_usage_baseline_by_service_type(answers):
     static = prompts.usage_baseline(build_requirements(answers))
     assert "API 요청" not in static and "CDN" in static
     answers["serviceType"] = "ai_chatbot"
-    assert "avgDurationMs" in prompts.usage_baseline(build_requirements(answers))
+    ai = prompts.usage_baseline(build_requirements(answers))
+    assert "월 AI 호출: 30,000건" in ai and "별도 lambda 노드" in ai
 
 
 def test_design_prompt_states_free_tier_rules():

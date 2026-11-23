@@ -43,6 +43,7 @@ DAILY_USERS_PER_PEAK = 5  # 하루 이용자 ≈ 동시 접속 최대치 × 5
 API_CALLS_PER_USER = 20  # 이용자 1명이 하루에 부르는 API 수
 CDN_REQUESTS_PER_API_CALL = 2  # 화면 파일(HTML·JS·이미지) 요청
 AVG_RESPONSE_KB = 100  # CDN 요청 1건의 평균 전송량
+AI_CALLS_PER_USER = 2  # AI 서비스: 이용자 1명이 하루에 AI 생성·응답을 요청하는 횟수
 
 
 def _num(n: int) -> str:
@@ -71,7 +72,13 @@ def usage_baseline(req: Requirements) -> str:
         "→ cloudfront의 monthlyRequests·dataTransferOutGb"
     )
     if req.service_type == ServiceType.AI_CHATBOT:
-        lines.append("- 외부 AI API를 기다리는 lambda는 avgDurationMs를 5000 이상으로 잡습니다.")
+        # 모든 API 요청에 AI 대기 시간을 붙이면 Lambda 비용이 수십 배로 나온다 (평가에서 월 40만 원)
+        ai = monthly_users * AI_CALLS_PER_USER
+        lines.append(
+            f"- 월 AI 호출: {ai:,}건 ({_num(ai)}). AI 응답을 기다리는 처리는 별도 lambda 노드로 두고 "
+            "monthlyRequests는 이 값, avgDurationMs는 AI 응답 시간(5000~60000)으로 잡습니다. "
+            "일반 API를 처리하는 lambda는 위 월 API 요청 수와 짧은 실행 시간(수백 ms)을 씁니다."
+        )
     if req.service_type == ServiceType.DATA_BATCH:
         lines.append("- 주기 작업은 위 값 대신 실행 주기·처리량으로 추정합니다.")
     return "\n".join(lines)
