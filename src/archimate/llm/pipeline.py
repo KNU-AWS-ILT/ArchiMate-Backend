@@ -36,6 +36,7 @@ from archimate.llm.errors import (
     TierCallbackError,
     TierInternalError,
 )
+from archimate.llm.features import check_required_services, required_services
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
 from archimate.llm.validation import (
@@ -283,6 +284,7 @@ async def generate_design(
 ) -> Design:
     provider, settings = _resolve(provider, settings)
     conflicts = find_conflicts(req)
+    required = required_services(req)
     draft = await _generate_validated(
         provider,
         settings,
@@ -294,6 +296,7 @@ async def generate_design(
             check_design(d)
             + check_conflict_notes(d.cons, conflicts)
             + check_budget_note(d, req.monthly_budget)
+            + check_required_services(d, required)
         ),
         prepare=fill_usage_defaults,
         label=f"design:{tier.value}",

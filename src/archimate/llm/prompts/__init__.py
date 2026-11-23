@@ -9,6 +9,7 @@ from functools import cache
 from importlib import resources
 
 from archimate.llm.conflicts import find_conflicts
+from archimate.llm.features import required_services
 from archimate.llm.interview import option_label
 from archimate.schemas import SERVICE_INFO, AwsService, Design, Node, Requirements, Tier
 from archimate.schemas.requirements import ServiceType, UserScale
@@ -142,6 +143,18 @@ def render_conflicts(req: Requirements) -> str:
     )
 
 
+def render_required_features(req: Requirements) -> str:
+    """요구사항에서 찾은 꼭 필요한 서비스 (#5). 세 안 모두 넣어야 한다."""
+    required = required_services(req)
+    if not required:
+        return ""
+    lines = "\n".join(f"- {r.note}" for r in required)
+    return (
+        "<required_features>\n요구사항에 아래 기능이 있습니다. 어떤 안이든 이 서비스를 넣고 쓰는 쪽 노드와 "
+        f"연결하세요. 직접 구현하는 대신 관리형 서비스를 씁니다.\n{lines}\n</required_features>\n\n"
+    )
+
+
 def render_budget_rule(req: Requirements) -> str:
     """예산 0원이면 budgetNote에 넣을 문장 규칙 (#5). 설계 전이라 서비스별 두 가지 형식을 준다."""
     if req.monthly_budget != 0:
@@ -162,6 +175,7 @@ def design_user_prompt(req: Requirements, tier: Tier) -> str:
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
         f"<usage_baseline>\n{usage_baseline(req)}\n</usage_baseline>\n\n"
         f"{render_conflicts(req)}"
+        f"{render_required_features(req)}"
         f"{render_budget_rule(req)}"
         f"<tier>{tier.value}</tier>\n"
         f"<tier_guide>{TIER_GUIDES[tier]}</tier_guide>\n\n"
