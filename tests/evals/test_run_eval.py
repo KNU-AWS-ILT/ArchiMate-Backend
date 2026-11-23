@@ -124,3 +124,35 @@ async def test_eval_counts_filled_defaults():
     }
     summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
     assert "| 기본값 채움 |" in summary
+
+
+async def test_eval_interleaves_scenarios_and_records_pre_fallback_error(monkeypatch):
+    from archimate.llm import LLMProviderError, LLMRateLimitError, pipeline
+
+    class AlwaysLimited(MockProvider):
+        async def generate_json(self, **kwargs):
+            raise LLMRateLimitError("429 하루 한도")
+
+    class BackupOverloaded(MockProvider):
+        async def generate_json(self, **kwargs):
+            raise LLMProviderError("503", transient=True, overloaded=True)
+
+    monkeypatch.setattr(pipeline, "build_provider", lambda _s, model=None: BackupOverloaded())
+    scenarios = run_eval.load_scenarios(only=["demo_club_recruit", "student_study_booking"])
+    s = settings(max_transient_retries=0, fallback_model="backup", tiers=[Tier.MINIMAL_COST])
+    runs, tiers, invalid = await run_eval.run_eval(
+        scenarios, runs=2, provider=AlwaysLimited(), settings=s
+    )
+    # 회차마다 시나리오를 번갈아 돈다
+    assert [(r.scenario, r.run) for r in runs] == [
+        ("demo_club_recruit", 1),
+        ("student_study_booking", 1),
+        ("demo_club_recruit", 2),
+        ("student_study_booking", 2),
+    ]
+    # 마지막 오류(대체 모델 과부하)와 함께 원래 원인(한도 초과)도 남는다
+    assert {(t.reason, t.fallback_from) for t in tiers} == {
+        ("LLM_PROVIDER_ERROR", "LLM_RATE_LIMITED")
+    }
+    summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
+    assert "`LLM_PROVIDER_ERROR` (대체 모델 전환 전 `LLM_RATE_LIMITED`): 4회" in summary

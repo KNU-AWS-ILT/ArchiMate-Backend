@@ -40,6 +40,7 @@ TARGET_SUCCESS_RATE = 0.8
 TARGET_SECONDS = 60.0
 
 _LABEL = re.compile(r"label=(\S+)")
+_CODE = re.compile(r"code=(\S+)")
 
 
 @dataclass
@@ -62,6 +63,9 @@ class TierRow:
     validation_attempts: int  # 설계 요청 횟수 (1 = 재시도 없음)
     transient_retries: int
     fallback: bool
+    # 대체 모델로 넘어가기 전 원래 오류 (예: 한도 초과로 넘어갔다가 대체 모델도 실패하면 reason만으로는
+    # 원래 원인이 안 보인다)
+    fallback_from: str
     # 모델이 빠뜨려 기본값으로 채운 사용량 필드 수 (모델이 기본값에 얼마나 기대는지)
     filled_defaults: int
     # 월 비용 (비용 계산 모듈로 계산. 실패한 안·계산 오류면 None)
@@ -85,6 +89,7 @@ class _LogStats:
     attempts: Counter = field(default_factory=Counter)
     transient: Counter = field(default_factory=Counter)
     fallback: set = field(default_factory=set)
+    fallback_from: dict = field(default_factory=dict)  # label → 대체 모델로 넘어가기 전 오류 code
     filled: Counter = field(default_factory=Counter)
     invalid: list = field(default_factory=list)  # 검증 실패 메시지 (실패 유형 정리용)
 
@@ -108,6 +113,8 @@ class _Capture(logging.Handler):
             self.stats.transient[label] += 1
         elif msg.startswith("llm.fallback "):
             self.stats.fallback.add(label)
+            if m := _CODE.search(msg):
+                self.stats.fallback_from[label] = m.group(1)
         elif msg.startswith("llm.filled_defaults "):
             # fields=['rds.hoursPerMonth', ...] — 노드 id에는 '.'이 없어서 '.' 수 = 필드 수
             self.stats.filled[label] += msg.split("fields=", 1)[1].count(".")
@@ -205,6 +212,7 @@ async def run_once(
                 validation_attempts=stats.attempts[label],
                 transient_retries=stats.transient[label] + stats.transient[f"operations:{tier}"],
                 fallback=label in stats.fallback or f"operations:{tier}" in stats.fallback,
+                fallback_from=stats.fallback_from.get(label, ""),
                 filled_defaults=stats.filled[label],
                 cost_krw=costs[tier].total if tier in costs else None,
                 unpriced_nodes=(
@@ -237,8 +245,10 @@ async def run_eval(
     all_tiers: list[TierRow] = []
     invalid: list[str] = []
     first = True
-    for scenario in scenarios:
-        for run in range(1, runs + 1):
+    # 회차마다 모든 시나리오를 번갈아 돈다. 시나리오별로 몰아서 돌면 무료 하루 한도·과부하가
+    # 뒤쪽 시나리오에만 몰려 그 시나리오가 나빠 보인다 (11-23 평가에서 실제로 그랬다)
+    for run in range(1, runs + 1):
+        for scenario in scenarios:
             if not first and interval_s:
                 await asyncio.sleep(interval_s)
             first = False
@@ -355,10 +365,16 @@ def summarize(
                 f"| {statistics.mean(t.unpriced_nodes for t in trows):.1f} |"
             )
 
-    reasons = Counter(t.reason for t in tiers if not t.ok)
+    reasons = Counter(
+        f"`{t.reason}` (대체 모델 전환 전 `{t.fallback_from}`)"
+        if t.fallback_from
+        else f"`{t.reason}`"
+        for t in tiers
+        if not t.ok
+    )
     if reasons:
         lines += ["", "## 실패 이유", ""]
-        lines += [f"- `{reason}`: {count}회" for reason, count in reasons.most_common()]
+        lines += [f"- {reason}: {count}회" for reason, count in reasons.most_common()]
     if invalid:
         lines += ["", "## 검증 실패 메시지 (최근 10개, 프롬프트 튜닝용)", ""]
         lines += [f"- {m[:300]}" for m in invalid[-10:]]
