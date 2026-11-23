@@ -72,7 +72,8 @@
         "usage": {
           "instanceCount": 2,
           "hoursPerMonth": 730,
-          "memoryMb": 1024
+          "memoryMb": 1024,
+          "vcpu": 0.5
         }
       },
       {

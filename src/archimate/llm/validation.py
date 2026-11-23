@@ -22,6 +22,16 @@ _ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 _PRICE_PATTERN = re.compile(r"\$\s*\d|\d[\d,.]*\s*(만|천|억)?\s*(원|달러|USD|KRW)")
 
 
+# ECS Fargate에서 고를 수 있는 vCPU와 그에 맞는 메모리 범위(MB). 이 밖의 조합은 AWS에서 만들 수 없다 (#35)
+FARGATE_MEMORY_MB: dict[float, tuple[int, int]] = {
+    0.25: (512, 2048),
+    0.5: (1024, 4096),
+    1: (2048, 8192),
+    2: (4096, 16384),
+    4: (8192, 30720),
+}
+
+
 @cache
 def allowed_instance_types() -> dict[AwsService, tuple[str, ...]]:
     """단가 스냅샷에 있는 인스턴스 유형 (#5). 이 밖의 유형은 월 비용을 계산할 수 없다."""
@@ -126,6 +136,7 @@ USAGE_DEFAULTS: dict[AwsService, dict[str, object]] = {
     # NAT 비용은 대부분 시간 요금이라 처리량은 작은 기본값으로 둔다 (모델이 피드백 후에도 자주 빠뜨림)
     AwsService.NAT_GATEWAY: {"hours_per_month": ALWAYS_ON_HOURS, "data_transfer_out_gb": 10},
     AwsService.ELASTICACHE: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
+    AwsService.ECS_FARGATE: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
 }
 
 
@@ -228,6 +239,22 @@ def check_design(d: DesignDraft) -> list[str]:
             errors.append(
                 f"노드 '{n.id}'({n.service_type.value})의 instanceType '{itype}'은 쓸 수 없습니다. "
                 f"다음 중에서 고르세요: {', '.join(choices)}"
+            )
+
+    # Fargate는 vCPU와 메모리 조합이 정해져 있다
+    for n in arch.nodes:
+        if n.service_type != AwsService.ECS_FARGATE or n.usage is None or n.usage.vcpu is None:
+            continue
+        span = FARGATE_MEMORY_MB.get(n.usage.vcpu)
+        if span is None:
+            errors.append(
+                f"노드 '{n.id}'(ecs_fargate)의 vcpu {n.usage.vcpu:g}는 쓸 수 없습니다. "
+                "0.25, 0.5, 1, 2, 4 중에서 고르세요."
+            )
+        elif n.usage.memory_mb is not None and not span[0] <= n.usage.memory_mb <= span[1]:
+            errors.append(
+                f"노드 '{n.id}'(ecs_fargate)의 memoryMb {n.usage.memory_mb}는 vcpu {n.usage.vcpu:g}와 "
+                f"맞지 않습니다. {span[0]}~{span[1]} 사이로 고르세요."
             )
 
     return errors

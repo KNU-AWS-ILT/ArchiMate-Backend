@@ -1453,7 +1453,7 @@
               }
             ],
             "title": "Memorymb",
-            "description": "Lambda 메모리(MB)"
+            "description": "Lambda·ECS Fargate 태스크 메모리(MB)"
           },
           "storageGb": {
             "anyOf": [
@@ -1550,6 +1550,18 @@
             ],
             "title": "Multiaz",
             "description": "RDS Multi-AZ 여부"
+          },
+          "vcpu": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vcpu",
+            "description": "ECS Fargate 태스크 vCPU (0.25, 0.5, 1, 2, 4 중 하나)"
           }
         },
         "type": "object",
