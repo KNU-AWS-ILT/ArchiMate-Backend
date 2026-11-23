@@ -24,6 +24,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from archimate.llm import prompts
+from archimate.llm.conflicts import check_conflict_notes, find_conflicts
 from archimate.llm.errors import (
     AllTiersFailedError,
     LLMConfigError,
@@ -37,7 +38,12 @@ from archimate.llm.errors import (
 )
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
-from archimate.llm.validation import check_design, check_explanation, check_operations_guide
+from archimate.llm.validation import (
+    check_design,
+    check_explanation,
+    check_operations_guide,
+    fill_usage_defaults,
+)
 from archimate.schemas import (
     SERVICE_INFO,
     Alternative,
@@ -189,7 +195,9 @@ async def _generate_validated(
     label: str,
     deadline: Deadline,
     allow_fallback: bool = True,
+    prepare: Callable[[T], list[str]] | None = None,
 ) -> T:
+    """prepare: 검증 전에 결과를 고친다 (예: 빠진 사용량 기본값). 고친 항목 목록을 돌려준다."""
     messages = [ChatMessage("user", user)]
     errors: list[str] = []
     call = _ProviderCall(
@@ -204,6 +212,8 @@ async def _generate_validated(
 
         try:
             result = output_model.model_validate_json(raw)
+            if prepare is not None and (fixed := prepare(result)):
+                logger.info("llm.filled_defaults label=%s fields=%s", label, fixed)
             errors = check(result)
         except ValidationError as e:
             errors = _format_validation_error(e)
@@ -269,13 +279,16 @@ async def generate_design(
     deadline: Deadline | None = None,
 ) -> Design:
     provider, settings = _resolve(provider, settings)
+    conflicts = find_conflicts(req)
     draft = await _generate_validated(
         provider,
         settings,
         system=prompts.design_system_prompt(),
         user=prompts.design_user_prompt(req, tier),
         output_model=DesignDraft,
-        check=check_design,
+        # 자유 서술 충돌을 코드가 찾았으면 cons에 알렸는지도 확인한다 (#5)
+        check=lambda d: check_design(d) + check_conflict_notes(d.cons, conflicts),
+        prepare=fill_usage_defaults,
         label=f"design:{tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),
     )

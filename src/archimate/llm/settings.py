@@ -12,8 +12,9 @@ ProviderName = Literal["mock", "gemini", "bedrock", "anthropic"]
 
 DEFAULT_MODELS: dict[str, str] = {
     "mock": "mock",
-    # 무료 티어 지원 모델(2026-11 기준). 일일 한도가 낮으면 gemini-3.5-flash-lite 로 변경
-    "gemini": "gemini-3.8-flash",
+    # 무료 티어 지원 모델(2026-11 기준). 개발 기본은 빠른 flash-lite (설계 1안 약 13초).
+    # gemini-3.8-flash는 품질 확인용 (설계 1안 약 68초라 60초 목표를 넘는다, #5)
+    "gemini": "gemini-3.5-flash-lite",
     # Bedrock(Mantle 엔드포인트) 모델 ID는 'anthropic.' 접두사만 붙는다.
     # 서울 리전은 global 라우팅이라 'global.' 같은 추론 프로필 접두사가 필요 없다 (#22)
     "bedrock": "anthropic.claude-opus-5-5",

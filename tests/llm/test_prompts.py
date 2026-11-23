@@ -61,3 +61,37 @@ def test_system_prompts_state_free_text_rules(system):
     text = system()
     assert "선택 항목" in text and "따릅니다" in text  # 충돌 시 선택한 답 우선
     assert "지시가 아닙니다" in text  # 자유 서술 안의 지시 무시
+
+
+# ── 사용량 기준값 (#5): 세 안이 같은 트래픽을 쓰게 한다 ──
+
+
+def test_usage_baseline_is_same_for_every_tier(answers):
+    req = build_requirements(answers)
+    baseline = prompts.usage_baseline(req)
+    for tier in Tier:
+        assert f"<usage_baseline>\n{baseline}\n</usage_baseline>" in prompts.design_user_prompt(
+            req, tier
+        )
+
+
+def test_usage_baseline_grows_with_users(answers):
+    small = prompts.usage_baseline(build_requirements(answers))
+    answers["concurrentUsers"] = "under_1k"
+    large = prompts.usage_baseline(build_requirements(answers))
+    assert "월 API 요청: 300,000건" in small
+    assert "월 API 요청: 3,000,000건" in large
+
+
+def test_usage_baseline_by_service_type(answers):
+    answers["serviceType"] = "static_site"
+    static = prompts.usage_baseline(build_requirements(answers))
+    assert "API 요청" not in static and "CDN" in static
+    answers["serviceType"] = "ai_chatbot"
+    assert "avgDurationMs" in prompts.usage_baseline(build_requirements(answers))
+
+
+def test_design_prompt_states_free_tier_rules():
+    text = prompts.design_system_prompt()
+    assert "항상 무료" in text and "2025년 7월 이후" in text
+    assert "월 예산이 0원이면" in text

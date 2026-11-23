@@ -8,8 +8,10 @@
 from functools import cache
 from importlib import resources
 
+from archimate.llm.conflicts import find_conflicts
 from archimate.llm.interview import option_label
 from archimate.schemas import SERVICE_INFO, AwsService, Design, Node, Requirements, Tier
+from archimate.schemas.requirements import ServiceType, UserScale
 
 TIER_GUIDES: dict[Tier, str] = {
     Tier.MINIMAL_COST: (
@@ -25,6 +27,54 @@ TIER_GUIDES: dict[Tier, str] = {
         "예산을 넘을 수 있으며, 그 경우 budgetNote에 분명히 적습니다."
     ),
 }
+
+
+# ── 사용량 기준값 (#5) ─────────────────────────────────
+# 트래픽은 요구사항이 정하는 값이라 세 안이 같아야 월 비용 비교가 공정하다.
+# 안마다 LLM이 따로 추정하면 같은 요구사항인데 요청 수가 10배씩 달라졌다(평가에서 확인).
+# 그래서 기준값을 코드로 계산해 넣고, 세 안 모두 그대로 쓰게 한다. 값은 대략적인 가정이다.
+PEAK_USERS: dict[UserScale, int] = {
+    UserScale.UNDER_100: 100,
+    UserScale.UNDER_1K: 1_000,
+    UserScale.UNDER_10K: 10_000,
+    UserScale.OVER_10K: 30_000,
+}
+DAILY_USERS_PER_PEAK = 5  # 하루 이용자 ≈ 동시 접속 최대치 × 5
+API_CALLS_PER_USER = 20  # 이용자 1명이 하루에 부르는 API 수
+CDN_REQUESTS_PER_API_CALL = 2  # 화면 파일(HTML·JS·이미지) 요청
+AVG_RESPONSE_KB = 100  # CDN 요청 1건의 평균 전송량
+
+
+def _num(n: int) -> str:
+    if n >= 100_000_000:
+        return f"약 {n / 100_000_000:g}억"
+    if n >= 10_000:
+        return f"약 {n / 10_000:,.0f}만"
+    return f"약 {n:,}"
+
+
+def usage_baseline(req: Requirements) -> str:
+    """세 안이 함께 쓰는 월 사용량 기준값 (요구사항에서 계산)."""
+    monthly_users = PEAK_USERS[req.concurrent_users] * DAILY_USERS_PER_PEAK * 30
+    api = monthly_users * API_CALLS_PER_USER
+    has_api = req.service_type != ServiceType.STATIC_SITE
+    cdn = (api if has_api else monthly_users * API_CALLS_PER_USER) * CDN_REQUESTS_PER_API_CALL
+    transfer_gb = max(1, round(cdn * AVG_RESPONSE_KB / 1024 / 1024))
+    lines = []
+    if has_api:
+        lines.append(
+            f"- 월 API 요청: {api:,}건 ({_num(api)}) → api_gateway·lambda의 monthlyRequests"
+        )
+        lines.append(f"- DynamoDB: monthlyReads {api:,}, monthlyWrites {api // 5:,} (읽기의 1/5)")
+    lines.append(
+        f"- 월 화면 요청(CDN): {cdn:,}건 ({_num(cdn)}), 전송 {transfer_gb:,}GB "
+        "→ cloudfront의 monthlyRequests·dataTransferOutGb"
+    )
+    if req.service_type == ServiceType.AI_CHATBOT:
+        lines.append("- 외부 AI API를 기다리는 lambda는 avgDurationMs를 5000 이상으로 잡습니다.")
+    if req.service_type == ServiceType.DATA_BATCH:
+        lines.append("- 주기 작업은 위 값 대신 실행 주기·처리량으로 추정합니다.")
+    return "\n".join(lines)
 
 
 @cache
@@ -63,9 +113,23 @@ def render_requirements(req: Requirements) -> str:
     return body
 
 
+def render_conflicts(req: Requirements) -> str:
+    """코드가 찾은 자유 서술·선택 항목 충돌 (#5). 없으면 빈 문자열."""
+    conflicts = find_conflicts(req)
+    if not conflicts:
+        return ""
+    notes = "\n".join(f"- {c.note}" for c in conflicts)
+    return (
+        "<conflicts>\n보충 설명이 선택 항목과 다릅니다. 선택 항목 기준으로 설계하고, "
+        f"cons 첫 항목에 아래 문장을 그대로 쓰세요.\n{notes}\n</conflicts>\n\n"
+    )
+
+
 def design_user_prompt(req: Requirements, tier: Tier) -> str:
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
+        f"<usage_baseline>\n{usage_baseline(req)}\n</usage_baseline>\n\n"
+        f"{render_conflicts(req)}"
         f"<tier>{tier.value}</tier>\n"
         f"<tier_guide>{TIER_GUIDES[tier]}</tier_guide>\n\n"
         "위 요구사항으로 지정된 안 하나를 스키마에 맞춰 설계하세요."
