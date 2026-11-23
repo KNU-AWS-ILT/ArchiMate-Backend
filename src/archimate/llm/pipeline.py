@@ -6,6 +6,9 @@
 
 흐름: 프롬프트 조립 → 제공자 호출(JSON) → Pydantic 검증 → 의미 검증
       → 실패 시 에러 목록을 피드백으로 붙여 재시도 (최대 LLM_MAX_VALIDATION_RETRIES회)
+
+전체 기한(#22): 설계 생성은 LLM_GENERATION_DEADLINE_S(3안 공통), 노드 설명은 LLM_EXPLAIN_DEADLINE_S.
+호출마다 남은 시간만 기다리고, 남은 시간이 부족하면 재시도하지 않고 LLMTimeoutError로 끝낸다.
 """
 
 import asyncio
@@ -49,6 +52,21 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+# 남은 시간이 이보다 짧으면 새 호출을 시작하지 않는다 (응답을 받을 가능성이 낮고 비용만 든다)
+MIN_ATTEMPT_S = 5.0
+
+
+class Deadline:
+    """전체 기한. 같은 객체를 넘기면 여러 호출(3안, 설계 → 운영 절차)이 같은 기한을 나눠 쓴다."""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self._ends_at = time.monotonic() + seconds
+
+    def remaining(self) -> float:
+        return self._ends_at - time.monotonic()
+
+
 def _format_validation_error(e: ValidationError) -> list[str]:
     return [
         f"{'.'.join(str(p) for p in err['loc']) or '(root)'}: {err['msg']}" for err in e.errors()
@@ -64,19 +82,34 @@ async def _generate_validated(
     output_model: type[T],
     check: Callable[[T], list[str]],
     label: str,
+    deadline: Deadline,
 ) -> T:
     messages = [ChatMessage("user", user)]
     errors: list[str] = []
 
     for attempt in range(settings.max_validation_retries + 1):
+        remaining = deadline.remaining()
+        if remaining < MIN_ATTEMPT_S:
+            detail = f" (직전 검증 오류: {'; '.join(errors[:3])})" if errors else ""
+            logger.warning(
+                "llm.deadline_exceeded label=%s attempt=%d remaining=%.1fs",
+                label,
+                attempt + 1,
+                remaining,
+            )
+            raise LLMTimeoutError(
+                f"{label}: 전체 기한 {deadline.seconds:g}초 안에 끝내지 못함{detail}"
+            )
+        timeout_s = min(settings.request_timeout_s, remaining)
+
         started = time.perf_counter()
         try:
-            async with asyncio.timeout(settings.request_timeout_s):
+            async with asyncio.timeout(timeout_s):
                 raw = await provider.generate_json(
                     system=system, messages=messages, output_model=output_model
                 )
         except TimeoutError as e:
-            raise LLMTimeoutError(f"{label}: {settings.request_timeout_s}초 안에 응답 없음") from e
+            raise LLMTimeoutError(f"{label}: {timeout_s:.3g}초 안에 응답 없음") from e
         elapsed = time.perf_counter() - started
 
         try:
@@ -141,6 +174,7 @@ async def generate_design(
     *,
     provider: LLMProvider | None = None,
     settings: LLMSettings | None = None,
+    deadline: Deadline | None = None,
 ) -> Design:
     provider, settings = _resolve(provider, settings)
     draft = await _generate_validated(
@@ -151,6 +185,7 @@ async def generate_design(
         output_model=DesignDraft,
         check=check_design,
         label=f"design:{tier.value}",
+        deadline=deadline or Deadline(settings.generation_deadline_s),
     )
     return Design(tier=tier, **draft.model_dump(by_alias=False))
 
@@ -161,12 +196,18 @@ async def _generate_tier(
     provider: LLMProvider,
     settings: LLMSettings,
     on_tier_done: Callable[[Design], Awaitable[None]] | None,
+    deadline: Deadline,
 ) -> Design:
-    """1안 = 설계 → 운영 절차. 운영 절차가 실패해도 설계는 살린다(operationsGuide=null)."""
-    design = await generate_design(req, tier, provider=provider, settings=settings)
+    """1안 = 설계 → 운영 절차. 운영 절차가 실패해도 설계는 살린다(operationsGuide=null).
+
+    운영 절차는 설계가 쓰고 남은 기한 안에서 만든다. 기한이 부족하면 운영 절차 없이 저장한다.
+    """
+    design = await generate_design(
+        req, tier, provider=provider, settings=settings, deadline=deadline
+    )
     try:
         design.operations_guide = await generate_operations_guide(
-            req, design, provider=provider, settings=settings
+            req, design, provider=provider, settings=settings, deadline=deadline
         )
     except LLMConfigError:
         raise
@@ -184,7 +225,7 @@ async def _generate_tier(
 async def generate_designs(
     req: Requirements,
     *,
-    tiers: Sequence[Tier] = tuple(Tier),
+    tiers: Sequence[Tier] | None = None,
     provider: LLMProvider | None = None,
     settings: LLMSettings | None = None,
     on_tier_done: Callable[[Design], Awaitable[None]] | None = None,
@@ -193,14 +234,19 @@ async def generate_designs(
 
     안 하나의 실패(LLM 오류, on_tier_done 오류, 예상 못 한 오류)는 그 안만 실패로 처리한다.
     설정 오류(LLMConfigError)와 취소(CancelledError)만 전체로 올린다.
-    tiers로 일부 안만 만들 수 있다(1안 축소, #14). failures에는 시도한 안만 들어간다.
+    tiers로 일부 안만 만들 수 있다(1안 축소, #14). 생략하면 LLM_TIERS 설정(기본 3안 전체).
+    failures에는 시도한 안만 들어간다.
+    세 안은 LLM_GENERATION_DEADLINE_S 기한을 함께 쓰고, 기한 안에 못 끝낸 안은 LLM_TIMEOUT 실패다.
 
     on_tier_done: 안 하나가 끝날 때마다 호출된다. 비용 계산·저장을 여기서 하면
     프론트가 끝난 안부터 볼 수 있다(고도화 문서 4장 ④-2).
     """
     provider, settings = _resolve(provider, settings)
+    if tiers is None:
+        tiers = settings.tiers
+    deadline = Deadline(settings.generation_deadline_s)
     results = await asyncio.gather(
-        *(_generate_tier(req, t, provider, settings, on_tier_done) for t in tiers),
+        *(_generate_tier(req, t, provider, settings, on_tier_done, deadline) for t in tiers),
         return_exceptions=True,
     )
 
@@ -243,6 +289,7 @@ async def generate_operations_guide(
     *,
     provider: LLMProvider | None = None,
     settings: LLMSettings | None = None,
+    deadline: Deadline | None = None,
 ) -> OperationsGuide:
     provider, settings = _resolve(provider, settings)
     return await _generate_validated(
@@ -253,6 +300,7 @@ async def generate_operations_guide(
         output_model=OperationsGuide,
         check=lambda g: check_operations_guide(g, design.architecture),
         label=f"operations:{design.tier.value}",
+        deadline=deadline or Deadline(settings.generation_deadline_s),
     )
 
 
@@ -267,6 +315,7 @@ async def explain_node(
     """노드 클릭 시 설명(D). 캐시 확인·저장과 monthlyCost는 호출하는 쪽(핸들러)이 한다.
 
     없는 노드나 사용자 노드면 ValueError (API에서 404 NOT_FOUND).
+    전체 기한은 LLM_EXPLAIN_DEADLINE_S (API Gateway 29초 안에서 항상 우리 에러 형식으로 응답).
     """
     node = next((n for n in design.architecture.nodes if n.id == node_id), None)
     if node is None or node.service_type == AwsService.USERS:
@@ -286,6 +335,7 @@ async def explain_node(
         output_model=ExplanationDraft,
         check=lambda e: check_explanation(e, node.service_type),
         label=f"explain:{design.tier.value}:{node.id}",
+        deadline=Deadline(settings.explain_deadline_s),
     )
     name, category = SERVICE_INFO[node.service_type]
     return NodeExplanation(

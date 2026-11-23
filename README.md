@@ -256,6 +256,9 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `LLM_EXPLAIN_MODEL` | 노드 설명용 소형 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`) |
 | `LLM_MAX_VALIDATION_RETRIES` | 검증 실패 시 재시도 횟수 (기본 2) |
 | `LLM_REQUEST_TIMEOUT_S` | LLM 1회 호출 타임아웃(초, 기본 50) |
+| `LLM_GENERATION_DEADLINE_S` | 설계 생성 전체 기한(초, 기본 150). 기한 안에 못 끝낸 안은 `LLM_TIMEOUT` 실패 |
+| `LLM_EXPLAIN_DEADLINE_S` | 노드 설명 전체 기한(초, 기본 20) |
+| `LLM_TIERS` | 생성할 안, 쉼표 구분 (기본 3안 전체). 1안으로 줄일 때 `minimal_cost` |
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
