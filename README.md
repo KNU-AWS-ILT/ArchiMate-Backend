@@ -134,6 +134,7 @@ ArchiMate-Backend/
 │   │   ├── pipeline.py               3안 병렬 생성(+운영 절차), 노드 설명, 검증 → 피드백 → 재시도, 기한·일시 오류 재시도·대체 모델
 │   │   ├── validation.py             의미 검증 (노드 연결, 그룹 계층, 필수 사용량·기본값, 인스턴스 유형, 예산 안내)
 │   │   ├── conflicts.py              자유 서술과 선택 항목의 충돌 찾기
+│   │   ├── features.py               요구사항에 적힌 기능의 필수 서비스 찾기 (로그인 → Cognito 등)
 │   │   └── settings.py · errors.py   LLM 설정, 예외
 │   ├── api/                      💰 생성 작업·결과 조회, 3안 비교 가공, 로컬 FastAPI 앱
 │   ├── pricing/                  💰 월 비용·Free Tier 계산, 단가 스냅샷(snapshots/)
