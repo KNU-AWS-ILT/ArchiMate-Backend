@@ -260,6 +260,9 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
 | `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
+| `DESIGNS_TABLE` | (AWS Lambda) 설계 결과 테이블 이름. 설계 생성·노드 설명 Lambda |
+| `EXPLANATIONS_TABLE` | (AWS Lambda) 노드 설명 캐시 테이블 이름. 노드 설명 Lambda |
+| `PRICES_TABLE` | (AWS Lambda) 단가 테이블 이름. 단가 동기화 Lambda가 쓰고 설계 생성 Lambda가 읽음. 없으면 패키지 스냅샷 단가 |
 | `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
 | `MOCK_DELAY_S` | 모킹 지연(초, 기본 0). 예: `2`면 queued 2초 → running → 안이 2초 간격으로 하나씩 채워짐. `LLM_PROVIDER=mock`일 때만 적용 |
 

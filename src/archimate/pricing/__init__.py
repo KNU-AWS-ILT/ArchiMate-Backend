@@ -5,5 +5,18 @@
 
 from archimate.pricing.calculator import estimate_monthly_cost
 from archimate.pricing.prices import PriceBook, load_price_book
+from archimate.pricing.source import PriceSource, PriceStore, SnapshotPriceSource, StoredPriceSource
+from archimate.pricing.sync import PriceFetcher, SnapshotPriceFetcher, sync_prices
 
-__all__ = ["PriceBook", "estimate_monthly_cost", "load_price_book"]
+__all__ = [
+    "PriceBook",
+    "PriceFetcher",
+    "PriceSource",
+    "PriceStore",
+    "SnapshotPriceFetcher",
+    "SnapshotPriceSource",
+    "StoredPriceSource",
+    "estimate_monthly_cost",
+    "load_price_book",
+    "sync_prices",
+]
