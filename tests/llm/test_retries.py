@@ -314,7 +314,9 @@ async def test_claude_caches_system_prompt(monkeypatch, caplog):
         )
 
     client = SimpleNamespace(messages=SimpleNamespace(create=create))
-    provider = ClaudeProvider(client, name="bedrock", model="m", effort="low", max_output_tokens=10)
+    provider = ClaudeProvider(
+        client, name="bedrock", model="m", effort="low", max_output_tokens=10, prompt_cache=True
+    )
     with caplog.at_level("INFO", logger="archimate.llm.providers.claude"):
         assert (
             await provider.generate_json(system="설계 지시", messages=[], output_model=type(None))
@@ -324,3 +326,21 @@ async def test_claude_caches_system_prompt(monkeypatch, caplog):
         {"type": "text", "text": "설계 지시", "cache_control": {"type": "ephemeral"}}
     ]
     assert "cache_read=3000" in caplog.text
+
+
+async def test_claude_prompt_cache_is_off_by_default(monkeypatch):
+    # Bedrock 실제 호출로 cache_control을 확인하기 전까지 기본은 끔 (#34 리뷰)
+    monkeypatch.setattr(anthropic, "transform_schema", lambda _m: {})
+    sent: dict = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        return SimpleNamespace(
+            stop_reason="end_turn", content=[SimpleNamespace(type="text", text="{}")], usage=None
+        )
+
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    provider = ClaudeProvider(client, name="bedrock", model="m", effort="low", max_output_tokens=10)
+    await provider.generate_json(system="설계 지시", messages=[], output_model=type(None))
+    assert sent["system"] == "설계 지시"
+    assert LLMSettings(_env_file=None).prompt_cache is False

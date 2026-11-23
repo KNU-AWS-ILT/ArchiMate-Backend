@@ -53,16 +53,25 @@ class ClaudeProvider:
         model: str,
         effort: str,
         max_output_tokens: int,
+        prompt_cache: bool = False,
     ) -> None:
         self._client = client
         self.name = name
         self.model = model
         self._effort = effort
         self._max_output_tokens = max_output_tokens
+        self._prompt_cache = prompt_cache
 
     @classmethod
     def for_bedrock(
-        cls, *, model: str, aws_region: str, effort: str, max_output_tokens: int, timeout_s: float
+        cls,
+        *,
+        model: str,
+        aws_region: str,
+        effort: str,
+        max_output_tokens: int,
+        timeout_s: float,
+        prompt_cache: bool = False,
     ) -> "ClaudeProvider":
         # AWS 자격 증명은 표준 체인(AWS_PROFILE, 환경 변수, Lambda IAM 역할)에서 읽는다
         # 재시도는 파이프라인이 전체 기한 안에서 한다 (SDK 기본 재시도 2회와 겹치지 않게 끈다)
@@ -70,12 +79,23 @@ class ClaudeProvider:
             aws_region=aws_region, timeout=timeout_s, max_retries=0
         )
         return cls(
-            client, name="bedrock", model=model, effort=effort, max_output_tokens=max_output_tokens
+            client,
+            name="bedrock",
+            model=model,
+            effort=effort,
+            max_output_tokens=max_output_tokens,
+            prompt_cache=prompt_cache,
         )
 
     @classmethod
     def for_anthropic(
-        cls, *, model: str, effort: str, max_output_tokens: int, timeout_s: float
+        cls,
+        *,
+        model: str,
+        effort: str,
+        max_output_tokens: int,
+        timeout_s: float,
+        prompt_cache: bool = False,
     ) -> "ClaudeProvider":
         # ANTHROPIC_API_KEY 등 표준 자격 증명. 재시도는 파이프라인이 한다
         client = AsyncAnthropic(timeout=timeout_s, max_retries=0)
@@ -85,7 +105,15 @@ class ClaudeProvider:
             model=model,
             effort=effort,
             max_output_tokens=max_output_tokens,
+            prompt_cache=prompt_cache,
         )
+
+    def _system(self, system: str) -> str | list[dict]:
+        """LLM_PROMPT_CACHE=true면 시스템 프롬프트를 캐시한다 (3안의 설계·검증 재시도가 같은 앞부분을 공유).
+        최소 캐시 길이(Opus·Haiku 5.5: 512토큰)보다 짧으면 오류 없이 캐시만 안 된다."""
+        if not self._prompt_cache:
+            return system
+        return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
 
     async def generate_json(
         self, *, system: str, messages: list[ChatMessage], output_model: type[BaseModel]
@@ -94,9 +122,7 @@ class ClaudeProvider:
             response = await self._client.messages.create(
                 model=self.model,
                 max_tokens=self._max_output_tokens,
-                # 시스템 프롬프트는 요청마다 같아서 캐시한다 (3안의 설계·검증 재시도가 같은 앞부분을 공유).
-                # 최소 캐시 길이(Opus·Haiku 5.5: 512토큰)보다 짧으면 오류 없이 캐시만 안 된다
-                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                system=self._system(system),
                 messages=[{"role": m.role, "content": m.content} for m in messages],
                 output_config={
                     "effort": self._effort,

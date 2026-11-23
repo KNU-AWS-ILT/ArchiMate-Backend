@@ -66,6 +66,13 @@ class LLMSettings(BaseSettings):
     )
     max_output_tokens: int = Field(default=16_000, gt=0)
     claude_effort: Literal["low", "medium", "high"] = "low"
+    prompt_cache: bool = Field(
+        default=False,
+        description=(
+            "Claude 경로에서 시스템 프롬프트를 캐시한다. Bedrock 실제 호출로 확인하기 전까지 기본은 끔 "
+            "(엔드포인트가 cache_control을 거절하면 400이라 모든 생성이 실패한다, #34 리뷰)"
+        ),
+    )
 
     # 접두사 없는 표준 환경 변수명도 허용
     gemini_api_key: SecretStr | None = Field(

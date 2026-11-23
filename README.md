@@ -271,6 +271,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `LLM_FALLBACK_MODEL` | 한도 초과(429)·과부하(503, 529)가 재시도 후에도 계속될 때 1회 시도할 대체 모델 (기본 없음, 설계·운영 절차만) |
 | `LLM_MAX_OUTPUT_TOKENS` | LLM 1회 출력 최대 토큰 (기본 16000) |
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
+| `LLM_PROMPT_CACHE` | Claude 경로에서 시스템 프롬프트 캐시 (기본 `false`. Bedrock 실제 호출로 확인한 뒤 켠다) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
 | `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
