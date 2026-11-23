@@ -17,6 +17,7 @@ from archimate.llm import (
     LLMError,
     LLMRateLimitError,
     LLMTimeoutError,
+    TierInternalError,
 )
 from archimate.schemas import ErrorCode, ErrorResponse
 
@@ -61,6 +62,11 @@ def llm_error_to_api(e: LLMError, *, explanation: bool = False) -> ApiError:
             ErrorCode.LLM_TIMEOUT,
             "AI 응답이 늦어지고 있어요. 다시 시도해 주세요.",
             retryable=True,
+        )
+    if isinstance(e, TierInternalError):
+        # 비용 계산·저장 실패나 예상 못 한 오류는 AI가 아니라 서버 쪽 문제다 (#14: 예상 못 한 오류는 INTERNAL_ERROR)
+        return ApiError(
+            500, ErrorCode.INTERNAL_ERROR, "일시적인 오류가 발생했어요.", retryable=True
         )
     if explanation:
         return ApiError(
@@ -134,7 +140,9 @@ def install_error_handlers(app: FastAPI) -> None:
             err = ApiError(
                 500, ErrorCode.INTERNAL_ERROR, "일시적인 오류가 발생했어요.", retryable=True
             )
-            return _json(500, to_error_response(err, request.state.request_id), request.state.request_id)
+            return _json(
+                500, to_error_response(err, request.state.request_id), request.state.request_id
+            )
         response.headers[REQUEST_ID_HEADER] = request.state.request_id
         return response
 

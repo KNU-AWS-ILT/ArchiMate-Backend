@@ -42,6 +42,7 @@ packages = ["src/archimate"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"  # pytest-asyncio 경고 제거 (CI #37)
 pythonpath = ["src"]
 
 [tool.ruff]

@@ -11,6 +11,8 @@ from archimate.llm import (
     LLMOutputError,
     LLMRateLimitError,
     LLMTimeoutError,
+    TierCallbackError,
+    TierInternalError,
     build_requirements,
 )
 from archimate.llm.providers.mock import load_fixture
@@ -253,3 +255,40 @@ def test_mock_delay_env_name(monkeypatch):
 
     monkeypatch.setenv("MOCK_DELAY_S", "1.5")
     assert ApiSettings().mock_delay_s == 1.5
+
+
+async def test_all_failed_with_same_internal_cause_is_internal_error(req):
+    # #14: 비용 계산·저장 같은 서버 쪽 원인으로 세 안이 모두 실패하면 AI 오류가 아니라 INTERNAL_ERROR
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    async def fake_generate(_req, *, on_tier_done):
+        raise AllTiersFailedError(
+            failures=[TierFailure(tier=t, reason="TIER_CALLBACK_FAILED") for t in Tier],
+            causes=[TierCallbackError("저장 실패") for _ in Tier],
+        )
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert [f.reason for f in job.failures] == ["TIER_CALLBACK_FAILED"] * 3
+    assert job.error is not None
+    assert (job.error.code, job.error.retryable) == (ErrorCode.INTERNAL_ERROR, True)
+
+
+async def test_mixed_internal_and_llm_causes_stay_generation_failed(req):
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+
+    async def fake_generate(_req, *, on_tier_done):
+        raise AllTiersFailedError(
+            failures=[
+                TierFailure(tier=Tier.MINIMAL_COST, reason="TIER_INTERNAL_ERROR"),
+                TierFailure(tier=Tier.BALANCED, reason="LLM_INVALID_OUTPUT"),
+                TierFailure(tier=Tier.SCALABLE, reason="LLM_INVALID_OUTPUT"),
+            ],
+            causes=[TierInternalError("버그"), LLMOutputError("a"), LLMOutputError("b")],
+        )
+
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert job.error is not None and job.error.code == ErrorCode.DESIGN_GENERATION_FAILED
