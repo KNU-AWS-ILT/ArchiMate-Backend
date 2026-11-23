@@ -294,3 +294,33 @@ async def test_overload_flag_by_provider(monkeypatch):
     with pytest.raises(LLMProviderError) as e:
         await provider.generate_json(system="", messages=[], output_model=LLMSettings)
     assert e.value.overloaded is True
+
+
+async def test_claude_caches_system_prompt(monkeypatch, caplog):
+    monkeypatch.setattr(anthropic, "transform_schema", lambda _m: {})
+    sent: dict = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text="{}")],
+            usage=SimpleNamespace(
+                input_tokens=10,
+                cache_read_input_tokens=3000,
+                cache_creation_input_tokens=0,
+                output_tokens=50,
+            ),
+        )
+
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    provider = ClaudeProvider(client, name="bedrock", model="m", effort="low", max_output_tokens=10)
+    with caplog.at_level("INFO", logger="archimate.llm.providers.claude"):
+        assert (
+            await provider.generate_json(system="설계 지시", messages=[], output_model=type(None))
+            == "{}"
+        )
+    assert sent["system"] == [
+        {"type": "text", "text": "설계 지시", "cache_control": {"type": "ephemeral"}}
+    ]
+    assert "cache_read=3000" in caplog.text

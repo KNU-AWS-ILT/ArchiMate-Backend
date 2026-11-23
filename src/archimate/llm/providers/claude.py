@@ -4,6 +4,8 @@
 구조화 출력(output_config.format)으로 JSON 스키마를 강제한다.
 """
 
+import logging
+
 import anthropic
 from anthropic import AsyncAnthropic, AsyncAnthropicBedrockMantle
 from pydantic import BaseModel
@@ -17,12 +19,29 @@ from archimate.llm.errors import (
 )
 from archimate.llm.providers.base import ChatMessage
 
+logger = logging.getLogger(__name__)
+
 
 def _retry_after(e: anthropic.APIStatusError) -> float | None:
     try:
         return float(e.response.headers["retry-after"])
     except (KeyError, ValueError, AttributeError):
         return None
+
+
+def _log_usage(model: str, response: object) -> None:
+    """캐시가 실제로 맞는지 확인용 (cache_read가 계속 0이면 앞부분이 요청마다 바뀌는 것)."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return
+    logger.info(
+        "llm.usage model=%s input=%s cache_read=%s cache_write=%s output=%s",
+        model,
+        getattr(usage, "input_tokens", None),
+        getattr(usage, "cache_read_input_tokens", None),
+        getattr(usage, "cache_creation_input_tokens", None),
+        getattr(usage, "output_tokens", None),
+    )
 
 
 class ClaudeProvider:
@@ -75,7 +94,9 @@ class ClaudeProvider:
             response = await self._client.messages.create(
                 model=self.model,
                 max_tokens=self._max_output_tokens,
-                system=system,
+                # 시스템 프롬프트는 요청마다 같아서 캐시한다 (3안의 설계·검증 재시도가 같은 앞부분을 공유).
+                # 최소 캐시 길이(Opus·Haiku 5.5: 512토큰)보다 짧으면 오류 없이 캐시만 안 된다
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": m.role, "content": m.content} for m in messages],
                 output_config={
                     "effort": self._effort,
@@ -106,6 +127,7 @@ class ClaudeProvider:
         except anthropic.APIError as e:
             raise LLMProviderError(str(e)) from e
 
+        _log_usage(self.model, response)
         if response.stop_reason == "refusal":
             raise LLMOutputError("모델이 요청을 거절했습니다(refusal).")
         if response.stop_reason == "max_tokens":
