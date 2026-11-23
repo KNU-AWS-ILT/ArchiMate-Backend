@@ -233,6 +233,39 @@ def check_design(d: DesignDraft) -> list[str]:
     return errors
 
 
+def budget_alarm_usd(monthly_budget: int) -> int:
+    """AWS Budgets에 넣을 달러 금액 (원화 예산을 단가 스냅샷 환율로 바꾼 값, 최소 1)."""
+    from archimate.pricing import load_price_book
+
+    return max(1, round(monthly_budget / load_price_book().exchange_rate.usd_krw))
+
+
+def check_budget_alarm(g: OperationsGuide, monthly_budget: int) -> list[str]:
+    """예산 알람 절차가 달러 금액(또는 예산 0원이면 제로 지출 예산)을 안내하는지 (#5).
+
+    AWS Budgets는 달러로만 입력할 수 있는데 "예산 금액을 300,000원으로 입력"처럼 안내하고 있었다.
+    """
+    texts = " ".join(
+        " ".join([s.title, s.desc, *s.todo, s.console_path or "", s.warn or ""])
+        for p in g.phases
+        for s in p.steps
+    )
+    if monthly_budget == 0:
+        if "제로 지출" in texts or "Zero spend" in texts:
+            return []
+        return [
+            "예산이 0원이므로 예산 알람 절차에서 AWS Budgets의 '제로 지출 예산(Zero spend budget)' "
+            "템플릿을 고르라고 안내하세요."
+        ]
+    usd = budget_alarm_usd(monthly_budget)
+    if str(usd) in texts and any(u in texts for u in ("USD", "달러", "$")):
+        return []
+    return [
+        f"AWS Budgets는 달러로만 입력합니다. 예산 알람 절차에 예산 금액 '{usd}'(USD)를 넣으라고 "
+        f"안내하세요 (월 예산 {monthly_budget:,}원 환산)."
+    ]
+
+
 def check_operations_guide(g: OperationsGuide, arch: Architecture | None = None) -> list[str]:
     """arch를 주면 절차의 nodeIds가 그 설계에 있는 노드인지도 확인한다."""
     errors: list[str] = []

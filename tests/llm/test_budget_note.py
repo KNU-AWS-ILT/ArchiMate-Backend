@@ -76,3 +76,38 @@ async def test_pipeline_retries_until_note_is_added():
     )
     assert ZERO_BUDGET_NOTE in design.budget_note
     assert "0원을 단정하는 표현을 빼세요" in provider.calls[1][2].content
+
+
+# ── 운영 절차의 예산 알람: AWS Budgets는 달러로만 입력 ──
+
+
+def _guide(mutate=None):
+    from archimate.schemas import OperationsGuide
+
+    data = json.loads(load_fixture("operations_guide.json"))
+    if mutate:
+        mutate(data["phases"][0]["steps"][1])
+    return OperationsGuide.model_validate(data)
+
+
+def test_budget_alarm_prompt_uses_usd_or_zero_spend():
+    from archimate.llm import prompts
+
+    answers = json.loads(load_fixture("demo_answers.json"))
+    assert "'36'(USD)" in prompts.budget_alarm(build_requirements(answers))
+    answers["monthlyBudget"] = 0
+    assert "제로 지출 예산" in prompts.budget_alarm(build_requirements(answers))
+
+
+def test_check_budget_alarm():
+    from archimate.llm.validation import budget_alarm_usd, check_budget_alarm
+
+    assert budget_alarm_usd(50_000) == 36 and budget_alarm_usd(300_000) == 217
+    assert check_budget_alarm(_guide(), 50_000) == []
+    assert "'217'(USD)" in check_budget_alarm(_guide(), 300_000)[0]  # 원화만 쓰면 다시 요청
+    assert "제로 지출 예산" in check_budget_alarm(_guide(), 0)[0]
+
+    def zero_spend(step):
+        step["todo"][0] = "AWS Budgets에서 '제로 지출 예산' 템플릿을 골라요."
+
+    assert check_budget_alarm(_guide(zero_spend), 0) == []

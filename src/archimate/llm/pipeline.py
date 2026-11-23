@@ -39,6 +39,7 @@ from archimate.llm.errors import (
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
 from archimate.llm.validation import (
+    check_budget_alarm,
     check_budget_note,
     check_design,
     check_explanation,
@@ -409,7 +410,10 @@ async def generate_operations_guide(
         system=prompts.operations_system_prompt(),
         user=prompts.operations_user_prompt(req, design),
         output_model=OperationsGuide,
-        check=lambda g: check_operations_guide(g, design.architecture),
+        check=lambda g: (
+            check_operations_guide(g, design.architecture)
+            + check_budget_alarm(g, req.monthly_budget)
+        ),
         label=f"operations:{design.tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),
     )

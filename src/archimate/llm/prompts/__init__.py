@@ -162,10 +162,30 @@ def design_user_prompt(req: Requirements, tier: Tier) -> str:
     )
 
 
+def budget_alarm(req: Requirements) -> str:
+    """운영 절차의 예산 알람 안내 (#5). AWS Budgets는 달러로만 입력할 수 있다."""
+    if req.monthly_budget == 0:
+        return (
+            "- 예산이 0원이므로 AWS Budgets의 '제로 지출 예산(Zero spend budget)' 템플릿을 고르게 "
+            "안내합니다. 요금이 조금이라도 생기면 이메일이 옵니다."
+        )
+    from archimate.llm.validation import budget_alarm_usd
+    from archimate.pricing import load_price_book
+
+    rate = load_price_book().exchange_rate.usd_krw
+    usd = budget_alarm_usd(req.monthly_budget)
+    return (
+        f"- 월 예산 {req.monthly_budget:,}원은 약 {usd} USD입니다(1달러 ≈ {rate:,.0f}원).\n"
+        f"- AWS Budgets는 달러로만 입력하므로 예산 금액에 '{usd}'(USD)를 넣고, "
+        "실제 비용이 80%·100%에 이르면 이메일 알림을 받게 안내합니다. 원화 금액을 입력하라고 쓰지 않습니다."
+    )
+
+
 def operations_user_prompt(req: Requirements, design: Design) -> str:
     body = design.model_dump_json(exclude_none=True, exclude={"operations_guide"})
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
+        f"<budget_alarm>\n{budget_alarm(req)}\n</budget_alarm>\n\n"
         f"<tier>{design.tier.value}</tier>\n"
         f"<design>\n{body}\n</design>\n\n"
         "위 설계를 실제로 배포하고 운영하는 절차를 스키마에 맞춰 작성하세요."
