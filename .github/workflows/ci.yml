@@ -1,0 +1,40 @@
+name: CI
+
+# PR(main 또는 feat/** 브랜치 대상)과 main 푸시에서 린트 · 테스트를 확인한다.
+# AWS 인증과 시크릿은 쓰지 않는다. (테스트는 mock LLM과 moto로 돌아가서 외부 호출이 없다)
+# 근거: coding-conventions.md 2번(린트·테스트), 7번(CI 실패 시 머지 차단), 백엔드 #24
+on:
+  pull_request:
+    branches: [main, 'feat/**']
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # job 이름 `ci`는 브랜치 보호의 필수 체크로 지정할 이름이다. 바꾸면 보호 설정도 같이 바꿔야 한다.
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    # 테스트가 멈춰도 실행기를 무한정 잡고 있지 않게 한다.
+    timeout-minutes: 15
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v7
+
+      # 캐시 키는 pyproject.toml의 해시로 만들어진다. (requirements.txt가 없어도 된다)
+      - name: Python 설치 (.python-version)
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -e ".[dev]"
+
+      - name: 린트
+        run: ruff check .
+
+      - name: 테스트
+        run: pytest -q
