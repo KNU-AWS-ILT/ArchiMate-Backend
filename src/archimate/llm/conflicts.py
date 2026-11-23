@@ -85,8 +85,20 @@ def find_conflicts(req: Requirements) -> list[Conflict]:
     return conflicts
 
 
+_NOTE_MARK = "선택 항목 기준으로 설계했어요"
+
+
 def check_conflict_notes(cons: list[str], conflicts: list[Conflict]) -> list[str]:
-    """찾은 충돌마다 cons에 그 값이 언급됐는지 확인한다 (문장이 조금 달라도 값이 있으면 통과)."""
+    """찾은 충돌마다 cons에 그 값이 언급됐는지 확인한다 (문장이 조금 달라도 값이 있으면 통과).
+
+    충돌이 없는데 안내 문장을 지어내면(예: 서비스 설명 전체를 '설명에 쓴 값'으로 넣음) 빼게 한다.
+    """
+    if not conflicts:
+        return [
+            f"보충 설명과 선택 항목은 충돌하지 않습니다. cons에서 '{item[:30]}…' 항목을 빼세요."
+            for item in cons
+            if _NOTE_MARK in item
+        ]
     errors = []
     for c in conflicts:
         if not any(c.described in item and "선택" in item for item in cons):
