@@ -35,7 +35,10 @@
 > - 출력은 JSON 스키마로 강제하고, 스키마·의미 검증(노드 연결, 그룹 계층, 비용 계산 필수 항목)에 실패하면 오류 내용을 피드백으로 붙여 자동 재시도합니다.
 > - 노드마다 역할과 **선택 이유 한 줄**을 담고, 안마다 운영 난이도(쉬움·보통·어려움), 장단점, 성장 로드맵(사용자 1만 → 10만 명)을 제공합니다.
 > - LLM은 **가격을 추정하지 않고** 월 사용량(`usage`)만 출력합니다. 금액은 비용 계산 기능이 공식 단가로 계산합니다.
-> - 운영 절차는 초보자 기준으로 콘솔 경로를 안내하고, 예산 알람을 가장 먼저 설정하게 합니다.
+> - 운영 절차는 초보자 기준으로 콘솔 경로를 안내하고, 예산 알람(AWS Budgets, 달러 금액 또는 예산 0원이면 제로 지출 예산)을 가장 먼저 설정하게 합니다.
+> - 요청 수·전송량은 요구사항에서 계산한 기준값을 세 안이 함께 써서 월 비용을 공정하게 비교합니다. 인스턴스 유형은 단가가 있는 것만 고릅니다.
+> - 자유 서술이 선택 항목과 충돌하면(예: "동시 접속 10만 명" vs "100명 이하") 선택 항목 기준으로 설계하고 그 사실을 단점에 알립니다. 예산 0원이면 요금이 생기는 서비스를 설명에 밝힙니다.
+> - 전체 기한(기본 150초) 안에서 일시 오류(429·5xx)는 지수 백오프로 재시도하고, 한도 초과·과부하가 계속되면 대체 모델로 한 번 더 시도합니다.
 
 * **API 명세**
 
@@ -128,8 +131,9 @@ ArchiMate-Backend/
 │   │   ├── interview.py              고정 인터뷰 질문, 답변 검증
 │   │   ├── prompts/                  시스템 프롬프트(.md), 프롬프트 조립
 │   │   ├── providers/                LLM 제공자: mock / gemini / claude(bedrock) + 데모 고정 응답
-│   │   ├── pipeline.py               3안 병렬 생성(+운영 절차), 노드 설명, 검증 → 피드백 → 재시도
-│   │   ├── validation.py             의미 검증 (노드 연결, 그룹 계층, 필수 사용량)
+│   │   ├── pipeline.py               3안 병렬 생성(+운영 절차), 노드 설명, 검증 → 피드백 → 재시도, 기한·일시 오류 재시도·대체 모델
+│   │   ├── validation.py             의미 검증 (노드 연결, 그룹 계층, 필수 사용량·기본값, 인스턴스 유형, 예산 안내)
+│   │   ├── conflicts.py              자유 서술과 선택 항목의 충돌 찾기
 │   │   └── settings.py · errors.py   LLM 설정, 예외
 │   ├── api/                      💰 생성 작업·결과 조회, 3안 비교 가공, 로컬 FastAPI 앱
 │   ├── pricing/                  💰 월 비용·Free Tier 계산, 단가 스냅샷(snapshots/)
@@ -142,7 +146,8 @@ ArchiMate-Backend/
 ├── tests/                        llm/ 🧠 · api/ pricing/ storage/ 💰 · handlers/ · contracts/ 🤝
 ├── scripts/
 │   ├── llm/try_generate.py       🧠 생성 파이프라인 수동 실행
-│   └── export_contracts.py       🤝 contracts/ 생성
+│   ├── export_contracts.py       🤝 contracts/ 생성 (JSON Schema, 예시)
+│   └── export_openapi.py         🤝 contracts/openapi.json 생성
 ├── evals/llm/                    🧠 대표 시나리오 5종 평가
 ├── .github/CODEOWNERS            영역별 자동 리뷰어 지정
 ├── .env.example                  환경 변수 템플릿
@@ -150,7 +155,7 @@ ArchiMate-Backend/
 ```
 
 **의존 방향**: `handlers → (llm | api | pricing | storage) → schemas`
-`llm`은 다른 영역을 import 하지 않습니다. 생성 결과 저장처럼 여러 영역을 조합하는 일은 `handlers`에서 합니다.
+`llm`은 다른 영역을 import 하지 않습니다. 예외로 단가 스냅샷(`pricing.load_price_book`)만 읽어 인스턴스 유형 목록과 환율(예산 알람 달러 금액)에 씁니다. 생성 결과 저장처럼 여러 영역을 조합하는 일은 `handlers`·`api`에서 합니다.
 
 ---
 
@@ -263,6 +268,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `LLM_MAX_TRANSIENT_RETRIES` | 일시 오류(429·5xx·네트워크) 재시도 횟수 (기본 3, 지수 백오프) |
 | `LLM_RETRY_BASE_DELAY_S` | 재시도 첫 대기 시간(초, 기본 1). 1초 → 2초 → 4초 + 무작위 |
 | `LLM_FALLBACK_MODEL` | 한도 초과(429)·과부하(503, 529)가 재시도 후에도 계속될 때 1회 시도할 대체 모델 (기본 없음, 설계·운영 절차만) |
+| `LLM_MAX_OUTPUT_TOKENS` | LLM 1회 출력 최대 토큰 (기본 16000) |
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
@@ -285,6 +291,6 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 > - 예: `feat(llm): Add retry feedback`, `feat(pricing): Add Lambda cost calculation`
 >
 > **비용·데이터 주의**
-> - 개발 기간에는 Mock과 Gemini 무료 티어만 사용합니다. (Bedrock은 이후 연결)
+> - 개발 기간에는 Mock과 Gemini 무료 티어만 사용합니다. AWS 배포는 `LLM_PROVIDER=bedrock`(모델 ID는 비우면 `anthropic.claude-opus-5-5`, 설명용 `anthropic.claude-haiku-5-5`)이고, Lambda 역할에는 `bedrock-mantle:CreateInference` 권한이 필요합니다. (#15)
 > - Gemini 무료 티어 입력은 Google 제품 개선에 쓰일 수 있으므로 **실사용자 데이터를 넣지 않습니다.**
 > - `.env`와 API 키는 절대 커밋하지 않습니다.
