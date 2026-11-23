@@ -48,7 +48,8 @@ def req():
 
 @pytest.fixture
 def settings():
-    return LLMSettings(_env_file=None, provider="mock")
+    # 일시 오류 재시도(#23)는 test_retries.py에서 본다. 여기서는 안별 실패 처리만 확인
+    return LLMSettings(_env_file=None, provider="mock", max_transient_retries=0)
 
 
 async def run(req, settings, fail=None, **kwargs):

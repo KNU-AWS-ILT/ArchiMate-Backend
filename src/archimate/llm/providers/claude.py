@@ -18,6 +18,13 @@ from archimate.llm.errors import (
 from archimate.llm.providers.base import ChatMessage
 
 
+def _retry_after(e: anthropic.APIStatusError) -> float | None:
+    try:
+        return float(e.response.headers["retry-after"])
+    except (KeyError, ValueError, AttributeError):
+        return None
+
+
 class ClaudeProvider:
     def __init__(
         self,
@@ -39,7 +46,10 @@ class ClaudeProvider:
         cls, *, model: str, aws_region: str, effort: str, max_output_tokens: int, timeout_s: float
     ) -> "ClaudeProvider":
         # AWS 자격 증명은 표준 체인(AWS_PROFILE, 환경 변수, Lambda IAM 역할)에서 읽는다
-        client = AsyncAnthropicBedrockMantle(aws_region=aws_region, timeout=timeout_s)
+        # 재시도는 파이프라인이 전체 기한 안에서 한다 (SDK 기본 재시도 2회와 겹치지 않게 끈다)
+        client = AsyncAnthropicBedrockMantle(
+            aws_region=aws_region, timeout=timeout_s, max_retries=0
+        )
         return cls(
             client, name="bedrock", model=model, effort=effort, max_output_tokens=max_output_tokens
         )
@@ -48,7 +58,8 @@ class ClaudeProvider:
     def for_anthropic(
         cls, *, model: str, effort: str, max_output_tokens: int, timeout_s: float
     ) -> "ClaudeProvider":
-        client = AsyncAnthropic(timeout=timeout_s)  # ANTHROPIC_API_KEY 등 표준 자격 증명
+        # ANTHROPIC_API_KEY 등 표준 자격 증명. 재시도는 파이프라인이 한다
+        client = AsyncAnthropic(timeout=timeout_s, max_retries=0)
         return cls(
             client,
             name="anthropic",
@@ -76,11 +87,19 @@ class ClaudeProvider:
                 },
             )
         except anthropic.RateLimitError as e:
-            raise LLMRateLimitError(str(e)) from e
+            raise LLMRateLimitError(str(e), retry_after_s=_retry_after(e)) from e
         except anthropic.APITimeoutError as e:
             raise LLMTimeoutError(str(e)) from e
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
             raise LLMConfigError(f"{self.name} 인증/권한 오류: {e}") from e
+        except anthropic.APIConnectionError as e:
+            raise LLMProviderError(str(e), transient=True) from e
+        except anthropic.APIStatusError as e:
+            # 5xx·529(과부하)는 일시 오류, 그 밖의 4xx는 요청 자체의 문제
+            transient = e.status_code >= 500
+            raise LLMProviderError(
+                str(e), transient=transient, retry_after_s=_retry_after(e)
+            ) from e
         except anthropic.APIError as e:
             raise LLMProviderError(str(e)) from e
 
