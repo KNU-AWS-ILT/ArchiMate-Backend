@@ -156,3 +156,14 @@ async def test_eval_interleaves_scenarios_and_records_pre_fallback_error(monkeyp
     }
     summary = run_eval.summarize(scenarios, runs, tiers, invalid, provider="mock", model="mock")
     assert "`LLM_PROVIDER_ERROR` (대체 모델 전환 전 `LLM_RATE_LIMITED`): 4회" in summary
+
+
+async def test_mock_demo_responses_pass_every_scenario():
+    """개발 서버(Railway)는 고정 응답(mock)으로 돈다. 로그인·예산 0원처럼 요청마다 정답이 다른
+    검증 때문에 실패하면 안 된다 (#34 리뷰)."""
+    scenarios = run_eval.load_scenarios()
+    runs, tiers, _ = await run_eval.run_eval(
+        scenarios, runs=1, provider=MockProvider(), settings=settings()
+    )
+    assert [(r.scenario, r.tiers_ok) for r in runs] == [(s.id, 3) for s in scenarios]
+    assert all(t.guide_ok for t in tiers)

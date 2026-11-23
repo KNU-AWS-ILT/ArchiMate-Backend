@@ -245,6 +245,12 @@ async def _generate_validated(
     raise LLMOutputError(f"{label}: 재시도 후에도 검증 실패 — " + "; ".join(errors[:5]))
 
 
+def _checks_request_specific(provider: LLMProvider) -> bool:
+    """요청 내용을 보고 답하는 제공자인지. 고정 응답(mock 데모 모드)은 요청마다 다른 정답을 맞출 수 없어서
+    개발 서버(Railway, mock)에서 "로그인"·예산 0원 같은 입력이 실패하지 않게 그 검증을 건너뛴다."""
+    return not getattr(provider, "fixed_responses", False)
+
+
 def _resolve(
     provider: LLMProvider | None, settings: LLMSettings | None
 ) -> tuple[LLMProvider, LLMSettings]:
@@ -285,18 +291,23 @@ async def generate_design(
     provider, settings = _resolve(provider, settings)
     conflicts = find_conflicts(req)
     required = required_services(req)
+    adaptive = _checks_request_specific(provider)
     draft = await _generate_validated(
         provider,
         settings,
         system=prompts.design_system_prompt(),
         user=prompts.design_user_prompt(req, tier),
         output_model=DesignDraft,
-        # 자유 서술 충돌을 코드가 찾았으면 cons에 알렸는지도 확인한다 (#5)
+        # 요청에 따라 정답이 달라지는 검증(충돌 안내, 예산 문구, 필수 서비스)은 고정 응답이면 건너뛴다
         check=lambda d: (
             check_design(d)
-            + check_conflict_notes(d.cons, conflicts)
-            + check_budget_note(d, req.monthly_budget)
-            + check_required_services(d, required)
+            + (
+                check_conflict_notes(d.cons, conflicts)
+                + check_budget_note(d, req.monthly_budget)
+                + check_required_services(d, required)
+                if adaptive
+                else []
+            )
         ),
         prepare=fill_usage_defaults,
         label=f"design:{tier.value}",
@@ -407,6 +418,7 @@ async def generate_operations_guide(
     deadline: Deadline | None = None,
 ) -> OperationsGuide:
     provider, settings = _resolve(provider, settings)
+    adaptive = _checks_request_specific(provider)
     return await _generate_validated(
         provider,
         settings,
@@ -415,7 +427,7 @@ async def generate_operations_guide(
         output_model=OperationsGuide,
         check=lambda g: (
             check_operations_guide(g, design.architecture)
-            + check_budget_alarm(g, req.monthly_budget)
+            + (check_budget_alarm(g, req.monthly_budget) if adaptive else [])
         ),
         label=f"operations:{design.tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),
