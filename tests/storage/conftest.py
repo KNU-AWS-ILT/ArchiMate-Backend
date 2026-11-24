@@ -4,6 +4,8 @@ import json
 import os
 
 os.environ["LLM_PROVIDER"] = "mock"
+# 개발자 로컬 .env에 LLM_TIERS가 있어도 테스트는 3안 전체 기준으로 돈다 (환경 변수가 .env보다 우선)
+os.environ["LLM_TIERS"] = ""
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 import boto3  # noqa: E402
