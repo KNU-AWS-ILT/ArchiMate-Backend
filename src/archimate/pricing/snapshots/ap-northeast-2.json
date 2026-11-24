@@ -1,7 +1,7 @@
 {
   "region": "ap-northeast-2",
   "priceDate": "2026-11-20",
-  "source": "개발용 스냅샷 (서울 리전 온디맨드 공개 단가 근사치). 단가 동기화 Lambda(Price List API) 연결 후 prices 테이블로 교체",
+  "source": "서울 리전 온디맨드 단가. EC2·NAT Gateway를 뺀 항목은 AWS 공개 Price List와 대조함(scripts/verify_prices.py, 2026-11-24). 단가 동기화 Lambda(Price List API) 연결 후 prices 테이블로 교체",
   "exchangeRate": {
     "usdKrw": 1380.0,
     "date": "2026-11-20",
@@ -26,9 +26,9 @@
     "freeRequests": 10000000
   },
   "dynamodb": {
-    "perMillionReads": 0.1413,
-    "perMillionWrites": 0.7063,
-    "perGbMonth": 0.285,
+    "perMillionReads": 0.1355,
+    "perMillionWrites": 0.68,
+    "perGbMonth": 0.27075,
     "freeStorageGb": 25
   },
   "rds": {
@@ -65,12 +65,12 @@
   },
   "elasticache": {
     "instanceHourly": {
-      "cache.t3.micro": 0.026,
-      "cache.t3.small": 0.052,
-      "cache.t3.medium": 0.104,
-      "cache.t4g.micro": 0.025,
-      "cache.t4g.small": 0.051,
-      "cache.t4g.medium": 0.102
+      "cache.t3.micro": 0.025,
+      "cache.t3.small": 0.049,
+      "cache.t3.medium": 0.099,
+      "cache.t4g.micro": 0.024,
+      "cache.t4g.small": 0.047,
+      "cache.t4g.medium": 0.094
     }
   }
 }
