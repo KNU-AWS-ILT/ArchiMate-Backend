@@ -18,8 +18,8 @@
   ],
   "monthlyCost": {
     "currency": "KRW",
-    "amount": 146,
-    "amountUsd": 0.11,
+    "amount": 140,
+    "amountUsd": 0.1,
     "note": "온디맨드 읽기 월 50만 건, 쓰기 5만 건, 저장 1GB 기준 · 무료 한도 적용"
   }
 }
