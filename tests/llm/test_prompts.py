@@ -88,10 +88,20 @@ def test_usage_baseline_by_service_type(answers):
     static = prompts.usage_baseline(build_requirements(answers))
     assert "API 요청" not in static and "CDN" in static
     answers["serviceType"] = "ai_chatbot"
-    assert "avgDurationMs" in prompts.usage_baseline(build_requirements(answers))
+    ai = prompts.usage_baseline(build_requirements(answers))
+    assert "월 AI 호출: 30,000건" in ai and "별도 lambda 노드" in ai
 
 
 def test_design_prompt_states_free_tier_rules():
     text = prompts.design_system_prompt()
     assert "항상 무료" in text and "2025년 7월 이후" in text
     assert "월 예산이 0원이면" in text
+
+
+def test_budget_rule_only_for_zero_budget(answers):
+    assert "<budget_rule>" not in prompts.design_user_prompt(
+        build_requirements(answers), Tier.BALANCED
+    )
+    answers["monthlyBudget"] = 0
+    text = prompts.design_user_prompt(build_requirements(answers), Tier.BALANCED)
+    assert "<budget_rule>" in text and "예산 0원을 넘어요" in text

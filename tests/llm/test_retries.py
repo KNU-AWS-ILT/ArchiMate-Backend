@@ -155,7 +155,18 @@ async def test_fallback_is_tried_only_once(req, fallback):
     assert [p.attempts for p in built] == [1]
 
 
-async def test_overload_does_not_switch_model(req, fallback):
+async def test_overload_switches_to_fallback_model(req, fallback):
+    # 503 과부하는 모델별이라 다른 모델이면 될 수 있다 (개발 중 Gemini flash-lite에서 자주 발생)
+    built = fallback()
+    primary = FlakyProvider(
+        [LLMProviderError("503", transient=True, overloaded=True) for _ in range(10)]
+    )
+    result = await run_one(req, primary, settings(max_transient_retries=1, fallback_model="backup"))
+    assert result.designs and [p.model for p in built] == ["backup", "backup"]
+
+
+async def test_network_error_does_not_switch_model(req, fallback):
+    # 네트워크 끊김·500은 모델을 바꿔도 같으므로 대체 모델로 넘어가지 않는다
     built = fallback()
     primary = FlakyProvider([overloaded() for _ in range(10)])
     s = settings(max_transient_retries=1, fallback_model="backup")
@@ -260,3 +271,76 @@ async def test_gemini_error_classification(exc, kind, transient):
     with pytest.raises(LLMProviderError) as e:
         await provider.generate_json(system="", messages=[], output_model=LLMSettings)
     assert type(e.value) is kind and e.value.transient is transient
+
+
+async def test_overload_flag_by_provider(monkeypatch):
+    monkeypatch.setattr(anthropic, "transform_schema", lambda _m: {})
+    err = await _claude_error(
+        anthropic.InternalServerError("529", response=_response(529), body=None)
+    )
+    assert err.overloaded is True
+    err = await _claude_error(
+        anthropic.InternalServerError("500", response=_response(500), body=None)
+    )
+    assert err.overloaded is False
+
+    async def generate_content(**_kwargs):
+        raise genai_errors.APIError(503, {})
+
+    provider = GeminiProvider(api_key="test", model="m", max_output_tokens=10, timeout_s=5)
+    provider._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    with pytest.raises(LLMProviderError) as e:
+        await provider.generate_json(system="", messages=[], output_model=LLMSettings)
+    assert e.value.overloaded is True
+
+
+async def test_claude_caches_system_prompt(monkeypatch, caplog):
+    monkeypatch.setattr(anthropic, "transform_schema", lambda _m: {})
+    sent: dict = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text="{}")],
+            usage=SimpleNamespace(
+                input_tokens=10,
+                cache_read_input_tokens=3000,
+                cache_creation_input_tokens=0,
+                output_tokens=50,
+            ),
+        )
+
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    provider = ClaudeProvider(
+        client, name="bedrock", model="m", effort="low", max_output_tokens=10, prompt_cache=True
+    )
+    with caplog.at_level("INFO", logger="archimate.llm.providers.claude"):
+        assert (
+            await provider.generate_json(system="설계 지시", messages=[], output_model=type(None))
+            == "{}"
+        )
+    assert sent["system"] == [
+        {"type": "text", "text": "설계 지시", "cache_control": {"type": "ephemeral"}}
+    ]
+    assert "cache_read=3000" in caplog.text
+
+
+async def test_claude_prompt_cache_is_off_by_default(monkeypatch):
+    # Bedrock 실제 호출로 cache_control을 확인하기 전까지 기본은 끔 (#34 리뷰)
+    monkeypatch.setattr(anthropic, "transform_schema", lambda _m: {})
+    sent: dict = {}
+
+    async def create(**kwargs):
+        sent.update(kwargs)
+        return SimpleNamespace(
+            stop_reason="end_turn", content=[SimpleNamespace(type="text", text="{}")], usage=None
+        )
+
+    client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    provider = ClaudeProvider(client, name="bedrock", model="m", effort="low", max_output_tokens=10)
+    await provider.generate_json(system="설계 지시", messages=[], output_model=type(None))
+    assert sent["system"] == "설계 지시"
+    assert LLMSettings(_env_file=None).prompt_cache is False

@@ -31,13 +31,6 @@ FREE_TIER_LABELS = {
 NOTE_UNPRICED = "비용 계산 대상이 아니에요"
 NOTE_NO_USAGE = "사용량 정보가 없어 계산하지 못했어요"
 
-# 공유 스키마의 REQUIRED_USAGE_FIELDS는 LLM 출력 검증에도 쓰여서, 아직 거기 없는 서비스의 필수 항목은
-# 계산기가 따로 확인한다. LLM 쪽 필드·프롬프트가 맞춰지면 REQUIRED_USAGE_FIELDS로 옮긴다.
-EXTRA_REQUIRED_USAGE_FIELDS: dict[AwsService, tuple[str, ...]] = {
-    AwsService.NAT_GATEWAY: ("hours_per_month", "data_transfer_out_gb"),
-    AwsService.ELASTICACHE: ("instance_type", "instance_count", "hours_per_month"),
-}
-
 
 class _CannotPrice(Exception):
     def __init__(self, note: str) -> None:
@@ -216,7 +209,7 @@ def _price_node(
 ) -> _NodeCost:
     if service not in CALCULATORS:
         raise _CannotPrice(NOTE_UNPRICED)
-    required = REQUIRED_USAGE_FIELDS.get(service) or EXTRA_REQUIRED_USAGE_FIELDS.get(service, ())
+    required = REQUIRED_USAGE_FIELDS.get(service, ())
     if usage is None or any(getattr(usage, f) is None for f in required):
         raise _CannotPrice(NOTE_NO_USAGE)
     return CALCULATORS[service](usage, p, free)

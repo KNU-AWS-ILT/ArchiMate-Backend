@@ -48,6 +48,9 @@ def test_check_conflict_notes():
     assert check_conflict_notes(["장점이 많아요"], conflicts)[0].startswith("cons 첫 항목에")
     assert check_conflict_notes([conflicts[0].note], conflicts) == []
     assert check_conflict_notes(["아무 내용"], []) == []
+    # 충돌이 없는데 안내 문장을 지어내면 빼게 한다 (도그푸딩 평가에서 실제로 나옴)
+    invented = "보충 설명의 'AI 서비스'와 선택한 '동시 사용자 100명 이하'가 달라 선택 항목 기준으로 설계했어요."
+    assert "충돌하지 않습니다" in check_conflict_notes([invented, "장점"], [])[0]
 
 
 def test_prompt_has_conflicts_block_only_when_needed():

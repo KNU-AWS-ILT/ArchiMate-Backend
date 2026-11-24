@@ -11,7 +11,7 @@
 호출마다 남은 시간만 기다리고, 남은 시간이 부족하면 재시도하지 않고 LLMTimeoutError로 끝낸다.
 
 일시 오류(#23): 429·5xx·네트워크 오류는 지수 백오프로 최대 LLM_MAX_TRANSIENT_RETRIES회 다시 부른다.
-설계·운영 절차는 한도 초과가 계속되면 LLM_FALLBACK_MODEL로 1회 더 시도한다 (노드 설명은 대체 모델 없음).
+설계·운영 절차는 한도 초과·과부하가 계속되면 LLM_FALLBACK_MODEL로 1회 더 시도한다 (노드 설명은 대체 모델 없음).
 """
 
 import asyncio
@@ -36,9 +36,12 @@ from archimate.llm.errors import (
     TierCallbackError,
     TierInternalError,
 )
+from archimate.llm.features import check_required_services, required_services
 from archimate.llm.providers import ChatMessage, LLMProvider, build_provider
 from archimate.llm.settings import LLMSettings, get_settings
 from archimate.llm.validation import (
+    check_budget_alarm,
+    check_budget_note,
     check_design,
     check_explanation,
     check_operations_guide,
@@ -159,8 +162,9 @@ class _ProviderCall:
 
     def _switch_to_fallback(self, e: LLMProviderError) -> bool:
         model = self._fallback_model
+        # 한도 초과·과부하는 모델별이라 다른 모델이면 될 수 있다. 네트워크 끊김·500은 바꿔도 같다
         if (
-            not isinstance(e, LLMRateLimitError)
+            not (isinstance(e, LLMRateLimitError) or e.overloaded)
             or not model
             or self.used_fallback
             or model == self.provider.model
@@ -241,6 +245,12 @@ async def _generate_validated(
     raise LLMOutputError(f"{label}: 재시도 후에도 검증 실패 — " + "; ".join(errors[:5]))
 
 
+def _checks_request_specific(provider: LLMProvider) -> bool:
+    """요청 내용을 보고 답하는 제공자인지. 고정 응답(mock 데모 모드)은 요청마다 다른 정답을 맞출 수 없어서
+    개발 서버(Railway, mock)에서 "로그인"·예산 0원 같은 입력이 실패하지 않게 그 검증을 건너뛴다."""
+    return not getattr(provider, "fixed_responses", False)
+
+
 def _resolve(
     provider: LLMProvider | None, settings: LLMSettings | None
 ) -> tuple[LLMProvider, LLMSettings]:
@@ -280,14 +290,25 @@ async def generate_design(
 ) -> Design:
     provider, settings = _resolve(provider, settings)
     conflicts = find_conflicts(req)
+    required = required_services(req)
+    adaptive = _checks_request_specific(provider)
     draft = await _generate_validated(
         provider,
         settings,
         system=prompts.design_system_prompt(),
         user=prompts.design_user_prompt(req, tier),
         output_model=DesignDraft,
-        # 자유 서술 충돌을 코드가 찾았으면 cons에 알렸는지도 확인한다 (#5)
-        check=lambda d: check_design(d) + check_conflict_notes(d.cons, conflicts),
+        # 요청에 따라 정답이 달라지는 검증(충돌 안내, 예산 문구, 필수 서비스)은 고정 응답이면 건너뛴다
+        check=lambda d: (
+            check_design(d)
+            + (
+                check_conflict_notes(d.cons, conflicts)
+                + check_budget_note(d, req.monthly_budget)
+                + check_required_services(d, required)
+                if adaptive
+                else []
+            )
+        ),
         prepare=fill_usage_defaults,
         label=f"design:{tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),
@@ -397,13 +418,17 @@ async def generate_operations_guide(
     deadline: Deadline | None = None,
 ) -> OperationsGuide:
     provider, settings = _resolve(provider, settings)
+    adaptive = _checks_request_specific(provider)
     return await _generate_validated(
         provider,
         settings,
         system=prompts.operations_system_prompt(),
         user=prompts.operations_user_prompt(req, design),
         output_model=OperationsGuide,
-        check=lambda g: check_operations_guide(g, design.architecture),
+        check=lambda g: (
+            check_operations_guide(g, design.architecture)
+            + (check_budget_alarm(g, req.monthly_budget) if adaptive else [])
+        ),
         label=f"operations:{design.tier.value}",
         deadline=deadline or Deadline(settings.generation_deadline_s),
     )

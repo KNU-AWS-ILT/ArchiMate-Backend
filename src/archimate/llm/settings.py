@@ -42,7 +42,7 @@ class LLMSettings(BaseSettings):
     )
     fallback_model: str | None = Field(
         default=None,
-        description="설계용 모델이 한도 초과(429)로 실패하면 1회 시도할 대체 모델. 비우면 사용 안 함",
+        description="설계용 모델이 한도 초과(429)·과부하(503, 529)로 계속 실패하면 1회 시도할 대체 모델",
     )
     max_validation_retries: int = Field(default=2, ge=0, le=5)
     # 일시 오류(429, 5xx, 네트워크) 재시도 (#23). 대기: base × 2^n + 무작위(0~base)초, 전체 기한 안에서만
@@ -66,6 +66,13 @@ class LLMSettings(BaseSettings):
     )
     max_output_tokens: int = Field(default=16_000, gt=0)
     claude_effort: Literal["low", "medium", "high"] = "low"
+    prompt_cache: bool = Field(
+        default=False,
+        description=(
+            "Claude 경로에서 시스템 프롬프트를 캐시한다. Bedrock 실제 호출로 확인하기 전까지 기본은 끔 "
+            "(엔드포인트가 cache_control을 거절하면 400이라 모든 생성이 실패한다, #34 리뷰)"
+        ),
+    )
 
     # 접두사 없는 표준 환경 변수명도 허용
     gemini_api_key: SecretStr | None = Field(
