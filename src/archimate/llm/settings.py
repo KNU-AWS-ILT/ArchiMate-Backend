@@ -1,18 +1,22 @@
 """LLM 설정. 환경 변수(.env)에서 읽는다."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import AliasChoices, Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from archimate.schemas import Tier
 
 ProviderName = Literal["mock", "gemini", "bedrock", "anthropic"]
 
 DEFAULT_MODELS: dict[str, str] = {
     "mock": "mock",
-    # 무료 티어 지원 모델(2026-11 기준). 일일 한도가 낮으면 gemini-3.5-flash-lite 로 변경
-    "gemini": "gemini-3.8-flash",
-    # Bedrock 모델 ID는 'anthropic.' 접두사가 붙는다
+    # 무료 티어 지원 모델(2026-11 기준). 개발 기본은 빠른 flash-lite (설계 1안 약 13초).
+    # gemini-3.8-flash는 품질 확인용 (설계 1안 약 68초라 60초 목표를 넘는다, #5)
+    "gemini": "gemini-3.5-flash-lite",
+    # Bedrock(Mantle 엔드포인트) 모델 ID는 'anthropic.' 접두사만 붙는다.
+    # 서울 리전은 global 라우팅이라 'global.' 같은 추론 프로필 접두사가 필요 없다 (#22)
     "bedrock": "anthropic.claude-opus-5-5",
     "anthropic": "claude-opus-5-5",
 }
@@ -36,10 +40,39 @@ class LLMSettings(BaseSettings):
     explain_model: str | None = Field(
         default=None, description="노드 설명용 소형 모델. 비우면 제공자별 기본 모델"
     )
+    fallback_model: str | None = Field(
+        default=None,
+        description="설계용 모델이 한도 초과(429)·과부하(503, 529)로 계속 실패하면 1회 시도할 대체 모델",
+    )
     max_validation_retries: int = Field(default=2, ge=0, le=5)
-    request_timeout_s: float = Field(default=50.0, gt=0)
+    # 일시 오류(429, 5xx, 네트워크) 재시도 (#23). 대기: base × 2^n + 무작위(0~base)초, 전체 기한 안에서만
+    max_transient_retries: int = Field(default=3, ge=0, le=5)
+    retry_base_delay_s: float = Field(default=1.0, gt=0)
+    request_timeout_s: float = Field(default=50.0, gt=0, description="LLM 1회 호출 제한 시간(초)")
+    # 전체 기한 (#22): 호출마다 남은 시간만 기다리고, 시간이 부족하면 재시도하지 않는다
+    generation_deadline_s: float = Field(
+        default=150.0,
+        gt=0,
+        description="설계 생성 전체 기한(초). Lambda 180초 중 나머지는 비용 계산·저장·콜드 스타트용",
+    )
+    explain_deadline_s: float = Field(
+        default=20.0,
+        gt=0,
+        description="노드 설명 전체 기한(초). Lambda 25초·API Gateway 29초 안에서 응답",
+    )
+    tiers: Annotated[list[Tier], NoDecode] = Field(
+        default_factory=lambda: list(Tier),
+        description="생성할 안 (쉼표 구분, 예: minimal_cost). 비우면 3안 전체 (#14 1안 축소용)",
+    )
     max_output_tokens: int = Field(default=16_000, gt=0)
     claude_effort: Literal["low", "medium", "high"] = "low"
+    prompt_cache: bool = Field(
+        default=False,
+        description=(
+            "Claude 경로에서 시스템 프롬프트를 캐시한다. Bedrock 실제 호출로 확인하기 전까지 기본은 끔 "
+            "(엔드포인트가 cache_control을 거절하면 400이라 모든 생성이 실패한다, #34 리뷰)"
+        ),
+    )
 
     # 접두사 없는 표준 환경 변수명도 허용
     gemini_api_key: SecretStr | None = Field(
@@ -48,6 +81,18 @@ class LLMSettings(BaseSettings):
     aws_region: str = Field(
         default="ap-northeast-2", validation_alias=AliasChoices("AWS_REGION", "LLM_AWS_REGION")
     )
+
+    @field_validator("tiers", mode="before")
+    @classmethod
+    def _split_tiers(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v = [t.strip() for t in v.split(",") if t.strip()]
+        return v or list(Tier)
+
+    @field_validator("tiers")
+    @classmethod
+    def _order_tiers(cls, v: list[Tier]) -> list[Tier]:
+        return [t for t in Tier if t in v]  # 중복 제거, 항상 최소비용 → 균형 → 확장형 순서
 
     @property
     def resolved_model(self) -> str:

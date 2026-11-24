@@ -32,6 +32,7 @@ def build_provider(settings: LLMSettings, *, model: str | None = None) -> LLMPro
                 effort=settings.claude_effort,
                 max_output_tokens=settings.max_output_tokens,
                 timeout_s=settings.request_timeout_s,
+                prompt_cache=settings.prompt_cache,
             )
         case "anthropic":
             from archimate.llm.providers.claude import ClaudeProvider
@@ -41,5 +42,6 @@ def build_provider(settings: LLMSettings, *, model: str | None = None) -> LLMPro
                 effort=settings.claude_effort,
                 max_output_tokens=settings.max_output_tokens,
                 timeout_s=settings.request_timeout_s,
+                prompt_cache=settings.prompt_cache,
             )
     raise LLMConfigError(f"알 수 없는 LLM_PROVIDER: {settings.provider}")

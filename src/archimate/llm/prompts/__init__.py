@@ -8,8 +8,11 @@
 from functools import cache
 from importlib import resources
 
+from archimate.llm.conflicts import find_conflicts
+from archimate.llm.features import required_services
 from archimate.llm.interview import option_label
 from archimate.schemas import SERVICE_INFO, AwsService, Design, Node, Requirements, Tier
+from archimate.schemas.requirements import ServiceType, UserScale
 
 TIER_GUIDES: dict[Tier, str] = {
     Tier.MINIMAL_COST: (
@@ -27,13 +30,78 @@ TIER_GUIDES: dict[Tier, str] = {
 }
 
 
+# ── 사용량 기준값 (#5) ─────────────────────────────────
+# 트래픽은 요구사항이 정하는 값이라 세 안이 같아야 월 비용 비교가 공정하다.
+# 안마다 LLM이 따로 추정하면 같은 요구사항인데 요청 수가 10배씩 달라졌다(평가에서 확인).
+# 그래서 기준값을 코드로 계산해 넣고, 세 안 모두 그대로 쓰게 한다. 값은 대략적인 가정이다.
+PEAK_USERS: dict[UserScale, int] = {
+    UserScale.UNDER_100: 100,
+    UserScale.UNDER_1K: 1_000,
+    UserScale.UNDER_10K: 10_000,
+    UserScale.OVER_10K: 30_000,
+}
+DAILY_USERS_PER_PEAK = 5  # 하루 이용자 ≈ 동시 접속 최대치 × 5
+API_CALLS_PER_USER = 20  # 이용자 1명이 하루에 부르는 API 수
+CDN_REQUESTS_PER_API_CALL = 2  # 화면 파일(HTML·JS·이미지) 요청
+AVG_RESPONSE_KB = 100  # CDN 요청 1건의 평균 전송량
+AI_CALLS_PER_USER = 2  # AI 서비스: 이용자 1명이 하루에 AI 생성·응답을 요청하는 횟수
+
+
+def _num(n: int) -> str:
+    if n >= 100_000_000:
+        return f"약 {n / 100_000_000:g}억"
+    if n >= 10_000:
+        return f"약 {n / 10_000:,.0f}만"
+    return f"약 {n:,}"
+
+
+def usage_baseline(req: Requirements) -> str:
+    """세 안이 함께 쓰는 월 사용량 기준값 (요구사항에서 계산)."""
+    monthly_users = PEAK_USERS[req.concurrent_users] * DAILY_USERS_PER_PEAK * 30
+    api = monthly_users * API_CALLS_PER_USER
+    has_api = req.service_type != ServiceType.STATIC_SITE
+    cdn = (api if has_api else monthly_users * API_CALLS_PER_USER) * CDN_REQUESTS_PER_API_CALL
+    transfer_gb = max(1, round(cdn * AVG_RESPONSE_KB / 1024 / 1024))
+    lines = []
+    if has_api:
+        lines.append(
+            f"- 월 API 요청: {api:,}건 ({_num(api)}) → api_gateway·lambda의 monthlyRequests"
+        )
+        lines.append(f"- DynamoDB: monthlyReads {api:,}, monthlyWrites {api // 5:,} (읽기의 1/5)")
+    lines.append(
+        f"- 월 화면 요청(CDN): {cdn:,}건 ({_num(cdn)}), 전송 {transfer_gb:,}GB "
+        "→ cloudfront의 monthlyRequests·dataTransferOutGb"
+    )
+    if req.service_type == ServiceType.AI_CHATBOT:
+        # 모든 API 요청에 AI 대기 시간을 붙이면 Lambda 비용이 수십 배로 나온다 (평가에서 월 40만 원)
+        ai = monthly_users * AI_CALLS_PER_USER
+        lines.append(
+            f"- 월 AI 호출: {ai:,}건 ({_num(ai)}). AI 응답을 기다리는 처리는 별도 lambda 노드로 두고 "
+            "monthlyRequests는 이 값, avgDurationMs는 AI 응답 시간(5000~60000)으로 잡습니다. "
+            "일반 API를 처리하는 lambda는 위 월 API 요청 수와 짧은 실행 시간(수백 ms)을 씁니다."
+        )
+    if req.service_type == ServiceType.DATA_BATCH:
+        lines.append("- 주기 작업은 위 값 대신 실행 주기·처리량으로 추정합니다.")
+    return "\n".join(lines)
+
+
 @cache
 def _load(name: str) -> str:
     return resources.files(__package__).joinpath(name).read_text("utf-8")
 
 
+@cache
 def design_system_prompt() -> str:
-    return _load("design_system.md")
+    # 인스턴스 유형 목록은 단가 스냅샷에서 만든다 (단가가 없는 유형을 고르면 월 비용이 비어서, #5)
+    from archimate.llm.validation import allowed_instance_types
+
+    lines = [f"  - {s.value}: {', '.join(t)}" for s, t in allowed_instance_types().items()]
+    return (
+        _load("design_system.md").rstrip()
+        + "\n\n## 인스턴스 유형\n- instanceType은 아래 목록에서만 고릅니다. 목록에 없는 유형은 비용을 계산할 수 없습니다.\n"
+        + "\n".join(lines)
+        + "\n"
+    )
 
 
 def operations_system_prompt() -> str:
@@ -63,12 +131,74 @@ def render_requirements(req: Requirements) -> str:
     return body
 
 
+def render_conflicts(req: Requirements) -> str:
+    """코드가 찾은 자유 서술·선택 항목 충돌 (#5). 없으면 빈 문자열."""
+    conflicts = find_conflicts(req)
+    if not conflicts:
+        return ""
+    notes = "\n".join(f"- {c.note}" for c in conflicts)
+    return (
+        "<conflicts>\n보충 설명이 선택 항목과 다릅니다. 선택 항목 기준으로 설계하고, "
+        f"cons 첫 항목에 아래 문장을 그대로 쓰세요.\n{notes}\n</conflicts>\n\n"
+    )
+
+
+def render_required_features(req: Requirements) -> str:
+    """요구사항에서 찾은 꼭 필요한 서비스 (#5). 세 안 모두 넣어야 한다."""
+    required = required_services(req)
+    if not required:
+        return ""
+    lines = "\n".join(f"- {r.note}" for r in required)
+    return (
+        "<required_features>\n요구사항에 아래 기능이 있습니다. 어떤 안이든 이 서비스를 넣고 쓰는 쪽 노드와 "
+        f"연결하세요. 직접 구현하는 대신 관리형 서비스를 씁니다.\n{lines}\n</required_features>\n\n"
+    )
+
+
+def render_budget_rule(req: Requirements) -> str:
+    """예산 0원이면 budgetNote에 넣을 문장 규칙 (#5). 설계 전이라 서비스별 두 가지 형식을 준다."""
+    if req.monthly_budget != 0:
+        return ""
+    return (
+        "<budget_rule>\n예산이 0원입니다. 설계에 쓴 서비스에 따라 budgetNote에 아래 문장을 넣으세요.\n"
+        "- RDS·EC2·ALB·NAT Gateway·ElastiCache·ECS(Fargate)가 있으면: "
+        '"{그 서비스 이름들}는 켜 두는 동안 고정 요금이 나와 예산 0원을 넘어요."\n'
+        "- 위 서비스는 없고 S3·API Gateway·Route 53·Secrets Manager 등이 있으면: "
+        '"{그 서비스 이름들}는 항상 무료가 아니라 사용량에 따라 소액 요금이 생길 수 있어요."\n'
+        "- Lambda·DynamoDB·CloudFront·Cognito·SQS·SNS·EventBridge·CloudWatch만 쓰면 문장이 필요 없습니다.\n"
+        "</budget_rule>\n\n"
+    )
+
+
 def design_user_prompt(req: Requirements, tier: Tier) -> str:
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
+        f"<usage_baseline>\n{usage_baseline(req)}\n</usage_baseline>\n\n"
+        f"{render_conflicts(req)}"
+        f"{render_required_features(req)}"
+        f"{render_budget_rule(req)}"
         f"<tier>{tier.value}</tier>\n"
         f"<tier_guide>{TIER_GUIDES[tier]}</tier_guide>\n\n"
         "위 요구사항으로 지정된 안 하나를 스키마에 맞춰 설계하세요."
+    )
+
+
+def budget_alarm(req: Requirements) -> str:
+    """운영 절차의 예산 알람 안내 (#5). AWS Budgets는 달러로만 입력할 수 있다."""
+    if req.monthly_budget == 0:
+        return (
+            "- 예산이 0원이므로 AWS Budgets의 '제로 지출 예산(Zero spend budget)' 템플릿을 고르게 "
+            "안내합니다. 요금이 조금이라도 생기면 이메일이 옵니다."
+        )
+    from archimate.llm.validation import budget_alarm_usd
+    from archimate.pricing import load_price_book
+
+    rate = load_price_book().exchange_rate.usd_krw
+    usd = budget_alarm_usd(req.monthly_budget)
+    return (
+        f"- 월 예산 {req.monthly_budget:,}원은 약 {usd} USD입니다(1달러 ≈ {rate:,.0f}원).\n"
+        f"- AWS Budgets는 달러로만 입력하므로 예산 금액에 '{usd}'(USD)를 넣고, "
+        "실제 비용이 80%·100%에 이르면 이메일 알림을 받게 안내합니다. 원화 금액을 입력하라고 쓰지 않습니다."
     )
 
 
@@ -76,6 +206,7 @@ def operations_user_prompt(req: Requirements, design: Design) -> str:
     body = design.model_dump_json(exclude_none=True, exclude={"operations_guide"})
     return (
         f"<requirements>\n{render_requirements(req)}\n</requirements>\n\n"
+        f"<budget_alarm>\n{budget_alarm(req)}\n</budget_alarm>\n\n"
         f"<tier>{design.tier.value}</tier>\n"
         f"<design>\n{body}\n</design>\n\n"
         "위 설계를 실제로 배포하고 운영하는 절차를 스키마에 맞춰 작성하세요."

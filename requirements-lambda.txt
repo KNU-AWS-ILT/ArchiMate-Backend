@@ -1,0 +1,16 @@
+# AWS Lambda(Python 3.12, ARM64) 배포 패키지에 넣는 최소 의존성 (Issue #15)
+#
+# pyproject.toml의 dependencies 전체를 설치하면 Lambda에서 쓰지 않는 패키지까지 들어가 크기가 커진다.
+#   google-genai     Gemini(개발용 LLM)에서만 쓴다. LLM_PROVIDER=bedrock이면 import하지 않는다.
+#   uvicorn[standard] 로컬·Railway 서버용. Lambda는 Mangum이 요청을 FastAPI로 넘긴다.
+# 빌드: python scripts/build_lambda.py  (자세한 내용은 README "Lambda 배포 패키지")
+#
+# 버전은 constraints-lambda.txt가 하위 의존성까지 고정한다 (여기는 `>=`로 두고, 올릴 때 constraints도 같이 고친다).
+# src/에서 모듈 맨 위에 import하는 외부 패키지는 여기에 모두 있어야 한다.
+# tests/test_lambda_requirements.py가 빠진 패키지를 확인한다.
+pydantic>=2.9
+pydantic-settings>=2.6
+fastapi>=0.165
+mangum>=0.19
+anthropic[bedrock]>=2.10
+boto3>=1.35
