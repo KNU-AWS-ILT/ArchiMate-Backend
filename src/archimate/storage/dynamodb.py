@@ -109,8 +109,7 @@ class DynamoDBRepository:
             status=JobStatus(item["status"]),
             designs=[DesignResult.model_validate_json(d) for d in item.get("designs", [])],
             failures=[
-                TierFailure.model_validate(f)
-                for f in json.loads(item.get("failures", "[]"))
+                TierFailure.model_validate(f) for f in json.loads(item.get("failures", "[]"))
             ],
             error=ErrorResponse.model_validate_json(error) if error else None,
             created_at=datetime.fromisoformat(item["createdAt"]).astimezone(UTC),

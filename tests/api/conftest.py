@@ -3,6 +3,8 @@ import os
 
 # .env에 다른 제공자가 있어도 API 테스트는 항상 고정 응답(비용 0)으로 돌린다
 os.environ["LLM_PROVIDER"] = "mock"
+# 개발자 로컬 .env에 LLM_TIERS가 있어도 테스트는 3안 전체 기준으로 돈다 (환경 변수가 .env보다 우선)
+os.environ["LLM_TIERS"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

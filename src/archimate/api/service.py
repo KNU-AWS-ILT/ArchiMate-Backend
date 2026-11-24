@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
 from archimate.llm import AllTiersFailedError, LLMError, explain_node
 from archimate.llm import generate_designs as llm_generate_designs
+from archimate.llm.settings import get_settings
 from archimate.pricing import PriceBook, PriceSource, estimate_monthly_cost
 from archimate.schemas import (
     CostItem,
@@ -38,6 +39,18 @@ GenerateFn = Callable[..., Awaitable[object]]
 
 # 생성 Lambda 제한 시간(180초)보다 길다. 이 시간이 지나도 끝나지 않은 job은 Lambda가 강제 종료된 것으로 본다.
 JOB_STALE_AFTER_S = 200
+
+
+# ── 시도하는 안 ────────────────────────────────────────
+
+
+def attempted_tiers() -> list[Tier]:
+    """이 서버가 만드는 안 (LLM_TIERS, 기본 3안 전체).
+
+    1안 모드(예: LLM_TIERS=minimal_cost)에서 작업이 취소·정체돼 실패 처리할 때, 만들려고 하지 않은 안까지
+    failures에 넣으면 안 된다 (#14). 설정은 같은 Lambda 환경 변수라 생성할 때와 조회할 때 같다.
+    """
+    return list(get_settings().tiers)
 
 
 # ── id ──────────────────────────────────────────────
@@ -104,7 +117,9 @@ def _expire_if_stale(job: JobRecord, now: datetime) -> JobRecord:
         return job
     logger.error("job.stale job_id=%s status=%s", job.job_id, job.status)
     done = {d.tier for d in job.designs}
-    failures = [TierFailure(tier=t, reason="INTERNAL_ERROR") for t in Tier if t not in done]
+    failures = [
+        TierFailure(tier=t, reason="INTERNAL_ERROR") for t in attempted_tiers() if t not in done
+    ]
     if done:
         return job.model_copy(update={"status": JobStatus.COMPLETED, "failures": failures})
     error = to_error_response(
@@ -155,7 +170,7 @@ async def _missing_tiers(
 ) -> list[TierFailure]:
     """아직 저장되지 않은(= 실패·중단된) 안을 모두 같은 이유로 실패 처리한 목록."""
     done = {d.tier for d in (await repo.get_job(job_id) or job).designs}
-    return [TierFailure(tier=t, reason=reason) for t in Tier if t not in done]
+    return [TierFailure(tier=t, reason=reason) for t in attempted_tiers() if t not in done]
 
 
 async def run_design_job(
