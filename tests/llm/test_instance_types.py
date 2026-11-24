@@ -60,3 +60,38 @@ def test_nat_and_elasticache_usage_is_required_and_defaulted():
         "cache.instanceCount",
     }
     assert check_design(d) == []
+
+
+# ── ECS Fargate 사용량 (#35) ──
+
+
+def test_fargate_usage_is_required_and_defaulted():
+    assert REQUIRED_USAGE_FIELDS[AwsService.ECS_FARGATE] == (
+        "vcpu",
+        "memory_mb",
+        "instance_count",
+        "hours_per_month",
+    )
+
+    def mutate(nodes):
+        nodes["app"]["usage"] = {"vcpu": 0.5, "memoryMb": 1024}
+
+    d = scalable(mutate)
+    assert set(fill_usage_defaults(d)) == {"app.hoursPerMonth", "app.instanceCount"}
+    assert check_design(d) == []
+
+    def missing_vcpu(nodes):
+        del nodes["app"]["usage"]["vcpu"]
+
+    assert any("usage.vcpu가 필요합니다" in e for e in check_design(scalable(missing_vcpu)))
+
+
+def test_fargate_vcpu_and_memory_must_match():
+    def bad_vcpu(nodes):
+        nodes["app"]["usage"]["vcpu"] = 0.75
+
+    def bad_memory(nodes):
+        nodes["app"]["usage"]["memoryMb"] = 8192  # 0.5 vCPU는 1024~4096MB
+
+    assert "0.25, 0.5, 1, 2, 4 중에서" in check_design(scalable(bad_vcpu))[0]
+    assert "1024~4096 사이" in check_design(scalable(bad_memory))[0]
