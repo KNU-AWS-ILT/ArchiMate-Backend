@@ -55,6 +55,10 @@
   "alb": {
     "perHour": 0.0225
   },
+  "ecsFargate": {
+    "vcpuHourly": 0.04656,
+    "gbHourly": 0.00511
+  },
   "natGateway": {
     "perHour": 0.059,
     "perGbProcessed": 0.059

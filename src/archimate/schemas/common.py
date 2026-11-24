@@ -62,6 +62,7 @@ PRICED_SERVICES: frozenset[AwsService] = frozenset(
         AwsService.ALB,
         AwsService.NAT_GATEWAY,
         AwsService.ELASTICACHE,
+        AwsService.ECS_FARGATE,
     }
 )
 

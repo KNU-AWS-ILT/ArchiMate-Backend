@@ -63,6 +63,13 @@ class AlbPrice(CamelModel):
     per_hour: float = Field(description="시간 요금만 (LCU 제외)")
 
 
+class EcsFargatePrice(CamelModel):
+    vcpu_hourly: float = Field(description="Linux/x86 vCPU 1개 시간당 단가")
+    gb_hourly: float = Field(
+        description="Linux/x86 메모리 1GB 시간당 단가 (임시 저장소 20GB 초과분 제외)"
+    )
+
+
 class NatGatewayPrice(CamelModel):
     per_hour: float = Field(description="게이트웨이 1개 시간당 단가")
     per_gb_processed: float = Field(description="처리한 데이터 1GB당 단가")
@@ -85,6 +92,7 @@ class PriceBook(CamelModel):
     rds: RdsPrice
     ec2: Ec2Price
     alb: AlbPrice
+    ecs_fargate: EcsFargatePrice
     nat_gateway: NatGatewayPrice
     elasticache: ElastiCachePrice
 

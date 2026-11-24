@@ -173,6 +173,18 @@ def _alb(u: Usage, p: PriceBook, _free: _FreeAllowance) -> _NodeCost:
     return _NodeCost(usd, f"월 {u.hours_per_month}시간 기준 (처리량(LCU) 요금 제외)")
 
 
+def _ecs_fargate(u: Usage, p: PriceBook, _free: _FreeAllowance) -> _NodeCost:
+    fp = p.ecs_fargate
+    # 요금 = (vCPU × vCPU-시간 단가 + 메모리 GB × GB-시간 단가) × 시간 × 태스크 수 (메모리는 MB로 받는다)
+    per_task_hour = u.vcpu * fp.vcpu_hourly + u.memory_mb / 1024 * fp.gb_hourly
+    usd = per_task_hour * u.hours_per_month * u.instance_count
+    note = (
+        f"{_num(u.vcpu)} vCPU·{u.memory_mb}MB 태스크 {u.instance_count}개, "
+        f"월 {u.hours_per_month}시간 기준 (임시 저장소 20GB 초과분 제외)"
+    )
+    return _NodeCost(usd, note)
+
+
 def _nat_gateway(u: Usage, p: PriceBook, _free: _FreeAllowance) -> _NodeCost:
     npp = p.nat_gateway
     # instance_count는 필수가 아니다. 없으면 1개(가용 영역 1곳)로 본다
@@ -200,6 +212,7 @@ CALCULATORS: dict[AwsService, Callable[[Usage, PriceBook, _FreeAllowance], _Node
     AwsService.ALB: _alb,
     AwsService.NAT_GATEWAY: _nat_gateway,
     AwsService.ELASTICACHE: _elasticache,
+    AwsService.ECS_FARGATE: _ecs_fargate,
 }
 assert set(CALCULATORS) == PRICED_SERVICES, "비용 계산 지원 서비스와 계산 함수가 어긋남"
 
