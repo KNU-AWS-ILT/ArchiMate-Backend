@@ -44,6 +44,16 @@ def _mock_delay(settings: ApiSettings) -> float:
     return settings.mock_delay_s
 
 
+def _daily_limit(settings: ApiSettings) -> int:
+    """하루 생성 횟수 제한은 실제 LLM일 때만 건다 (#52).
+
+    고정 응답(mock)은 비용이 없고, Railway 개발 서버는 로그인이 없어 팀원이 모두 같은 사용자로 잡힌다.
+    """
+    if get_llm_settings().provider == "mock":
+        return 0
+    return settings.daily_generation_limit
+
+
 def create_app(
     *,
     settings: ApiSettings | None = None,
@@ -77,6 +87,7 @@ def create_app(
     )
     app.state.repo = repo
     app.state.runner = runner
+    app.state.daily_limit = _daily_limit(settings)
 
     # 요청 id·500 처리 미들웨어를 먼저 추가하고 CORS를 나중에 추가해야 CORS가 바깥에서 감싼다
     install_error_handlers(app)

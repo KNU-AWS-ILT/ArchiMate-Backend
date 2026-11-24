@@ -4,6 +4,10 @@
     explanations   PK designId (S), SK nodeId (S)
     TTL            expiresAt (Number, epoch 초) — designs·explanations 모두 30일
 
+designs 테이블에는 하루 생성 횟수 카운터도 둔다 (#52, 인프라 변경 없이 기존 권한으로 쓰려고).
+    jobId = "usage#{userId}#{날짜}", count (Number), expiresAt = 2일 뒤
+작업 id는 항상 "job_"으로 시작해서 겹치지 않는다. 카운터 항목은 get_job에서 작업으로 보이지 않게 막는다.
+
 복잡한 모델(요구사항·설계안 등)은 JSON 문자열로 저장한다. DynamoDB는 float을 그대로 못 받고(Decimal 필요),
 스키마가 바뀌어도 테이블을 건드리지 않기 위해서다. 조회·갱신에 쓰는 값만 속성으로 둔다.
 
@@ -33,6 +37,8 @@ from archimate.storage.base import JobRecord
 DESIGNS_TABLE_ENV = "DESIGNS_TABLE"
 EXPLANATIONS_TABLE_ENV = "EXPLANATIONS_TABLE"
 TTL_DAYS = 30
+USAGE_KEY_PREFIX = "usage#"
+USAGE_TTL_DAYS = 2  # 날짜가 바뀐 뒤 하루 정도는 남겨 둔다 (TTL 삭제는 늦을 수 있다)
 
 
 def _expires_at(ttl_days: int) -> int:
@@ -101,6 +107,8 @@ class DynamoDBRepository:
         # TTL 삭제는 최대 수십 시간 늦을 수 있어서, 만료된 항목은 없는 것으로 본다
         if item is None or int(item.get("expiresAt", 0)) < time.time():
             return None
+        if "requirements" not in item:
+            return None  # 생성 횟수 카운터 등 작업이 아닌 항목 (#52)
         error = item.get("error")
         return JobRecord(
             job_id=item["jobId"],
@@ -154,6 +162,27 @@ class DynamoDBRepository:
             if await self.get_job(job_id) is None:
                 raise
             return False
+        return True
+
+    async def reserve_generation(self, user_id: str, day: str, limit: int) -> bool:
+        # 읽고 쓰지 않고 조건부로 한 번에 늘린다. 동시에 눌러도 limit을 넘지 않는다
+        try:
+            await asyncio.to_thread(
+                self._designs.update_item,
+                Key={"jobId": f"{USAGE_KEY_PREFIX}{user_id}#{day}"},
+                UpdateExpression="ADD #c :one SET expiresAt = if_not_exists(expiresAt, :exp)",
+                ConditionExpression="attribute_not_exists(#c) OR #c < :limit",
+                ExpressionAttributeNames={"#c": "count"},
+                ExpressionAttributeValues={
+                    ":one": 1,
+                    ":limit": limit,
+                    ":exp": _expires_at(USAGE_TTL_DAYS),
+                },
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            raise
         return True
 
     async def add_design(self, job_id: str, design: DesignResult) -> None:

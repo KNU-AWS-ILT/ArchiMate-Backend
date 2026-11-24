@@ -14,6 +14,7 @@ class InMemoryRepository:
     def __init__(self) -> None:
         self._jobs: dict[str, JobRecord] = {}
         self._explanations: dict[tuple[str, str], NodeExplanation] = {}
+        self._generations: dict[tuple[str, str], int] = {}
 
     def _require(self, job_id: str) -> JobRecord:
         job = self._jobs.get(job_id)
@@ -38,6 +39,14 @@ class InMemoryRepository:
         if job.status != JobStatus.QUEUED:
             return False
         job.status = JobStatus.RUNNING
+        return True
+
+    async def reserve_generation(self, user_id: str, day: str, limit: int) -> bool:
+        # 이벤트 루프 하나에서 await 없이 읽고 쓰므로 동시 요청이 끼어들 틈이 없다
+        used = self._generations.get((user_id, day), 0)
+        if used >= limit:
+            return False
+        self._generations[(user_id, day)] = used + 1
         return True
 
     async def add_design(self, job_id: str, design: DesignResult) -> None:

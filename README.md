@@ -296,6 +296,7 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 | `PRICES_TABLE` | (AWS Lambda) 단가 테이블 이름. 단가 동기화 Lambda가 쓰고 설계 생성 Lambda가 읽음. 없으면 패키지 스냅샷 단가 |
 | `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
 | `MOCK_DELAY_S` | 모킹 지연(초, 기본 0). 예: `2`면 queued 2초 → running → 안이 2초 간격으로 하나씩 채워짐. `LLM_PROVIDER=mock`일 때만 적용 |
+| `API_DAILY_GENERATION_LIMIT` | 사용자별 하루 설계 생성 횟수 (기본 `5`, `0`이면 제한 없음). 한국 시간 자정에 초기화. 넘으면 `429 RATE_LIMITED`. `LLM_PROVIDER=mock`일 때는 적용하지 않음 (#52) |
 
 ---
 
