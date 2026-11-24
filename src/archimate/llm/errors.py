@@ -8,7 +8,7 @@
     LLMOutputError        → DESIGN_GENERATION_FAILED   true       502 (노드 설명은 EXPLANATION_FAILED)
     LLMProviderError      → DESIGN_GENERATION_FAILED   true       502 (노드 설명은 EXPLANATION_FAILED)
     AllTiersFailedError   → common_cause가 있으면 그 예외의 매핑, 없으면 DESIGN_GENERATION_FAILED
-    TierInternalError     → DESIGN_GENERATION_FAILED   true       -   (안 하나의 실패로만 쓰임)
+    TierInternalError     → INTERNAL_ERROR             true       500 (안 하나의 실패로만 쓰이고, 세 안이 모두 이 원인이면 API가 이 코드로 응답)
 
 3안 생성은 비동기 작업이라 HTTP 에러가 아니라 DesignJob.status=failed + error로 전달한다.
   - DesignJob.failures = AllTiersFailedError.failures  (실제로 시도한 안만, 1안 모드면 1개)

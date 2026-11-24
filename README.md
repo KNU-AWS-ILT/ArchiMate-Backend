@@ -225,6 +225,20 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 
 생성 작업이 같은 프로세스의 메모리에서 돌기 때문에 워커 수(--workers)나 인스턴스 수를 2개 이상으로 늘리면 조회가 404가 될 수 있습니다. 개발 서버는 워커 1개, 인스턴스 1개로 유지하세요.
 
+### Lambda 배포 패키지 (AWS)
+
+Lambda(Python 3.12, ARM64)는 `src/`만으로는 실행되지 않고 의존성이 함께 있어야 합니다. 배포용 최소 의존성은 `requirements-lambda.txt`에 있고(`google-genai`·`uvicorn`처럼 Lambda에서 쓰지 않는 패키지는 뺐습니다), 아래 스크립트가 의존성과 `archimate/`를 한 폴더에 모읍니다.
+
+```shell
+python scripts/build_lambda.py                       # build/lambda (ARM64용, 약 42MB)
+python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인용)
+```
+
+- 인프라(CDK)는 `build/lambda` 폴더를 그대로 Lambda 코드로 묶으면 됩니다. 핸들러는 `archimate.handlers.generate.handler` 등 그대로입니다.
+- ARM64용 wheel(`pydantic-core`, `jiter`)을 받을 뿐 실행하지 않아서 어떤 PC에서도 만들 수 있습니다.
+- 코드에서 `requirements-lambda.txt`에 없는 외부 패키지를 모듈 맨 위에서 import하면 `tests/test_lambda_requirements.py`가 실패합니다.
+- 버전은 `constraints-lambda.txt`가 하위 의존성까지 `==`로 고정합니다. 배포일에 빌드해도 확인한 버전이 들어가고, 의존성을 올릴 때는 새로 빌드해 확인한 뒤 이 파일도 같이 고칩니다.
+
 ---
 
 ## 📋 API 구성
@@ -275,6 +289,9 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
 | `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
 | `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
+| `DESIGNS_TABLE` | (AWS Lambda) 설계 결과 테이블 이름. 설계 생성·노드 설명 Lambda |
+| `EXPLANATIONS_TABLE` | (AWS Lambda) 노드 설명 캐시 테이블 이름. 노드 설명 Lambda |
+| `PRICES_TABLE` | (AWS Lambda) 단가 테이블 이름. 단가 동기화 Lambda가 쓰고 설계 생성 Lambda가 읽음. 없으면 패키지 스냅샷 단가 |
 | `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
 | `MOCK_DELAY_S` | 모킹 지연(초, 기본 0). 예: `2`면 queued 2초 → running → 안이 2초 간격으로 하나씩 채워짐. `LLM_PROVIDER=mock`일 때만 적용 |
 

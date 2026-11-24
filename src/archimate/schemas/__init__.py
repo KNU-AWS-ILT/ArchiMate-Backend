@@ -16,6 +16,7 @@ from archimate.schemas.api import (
 )
 from archimate.schemas.architecture import (
     REQUIRED_USAGE_FIELDS,
+    TIER_FAILURE_REASONS,
     Architecture,
     Design,
     DesignDraft,
@@ -80,6 +81,7 @@ __all__ = [
     "Requirements",
     "ServiceCategory",
     "Tier",
+    "TIER_FAILURE_REASONS",
     "TierFailure",
     "Usage",
 ]
