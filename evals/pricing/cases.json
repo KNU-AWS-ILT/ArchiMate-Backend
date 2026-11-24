@@ -1,5 +1,5 @@
 {
-  "about": "비용 오차(±20%) 검증 케이스 (#25). 같은 사용량을 우리 계산기와 AWS Pricing Calculator(calculator.aws, 로그인 불필요)에 넣고 월 금액(USD)을 비교한다. 무료 한도는 양쪽 모두 빼지 않는다(Calculator에서 Free Tier를 끄거나 0으로 둔다). 우리 계산기가 제외하는 요금은 Calculator에서도 0으로 두고 excludes에 적는다.",
+  "about": "비용 오차(±20%) 검증 케이스 (#25). 요청 수 입력란의 단위(건/천 건/백만 건)를 꼭 확인한다(API Gateway·DynamoDB 등은 기본 단위가 백만 건). 같은 사용량을 우리 계산기와 AWS Pricing Calculator(calculator.aws, 로그인 불필요)에 넣고 월 금액(USD)을 비교한다. 무료 한도는 양쪽 모두 빼지 않는다(Calculator에서 Free Tier를 끄거나 0으로 둔다). 우리 계산기가 제외하는 요금은 Calculator에서도 0으로 두고 excludes에 적는다.",
   "region": "Asia Pacific (Seoul) ap-northeast-2",
   "cases": [
     {
@@ -52,7 +52,7 @@
       "service": "dynamodb",
       "title": "DynamoDB 온디맨드",
       "usage": {"monthlyReads": 5000000, "monthlyWrites": 1000000, "storageGb": 30},
-      "calculatorInput": "온디맨드, Standard 테이블 클래스, 읽기 요청 단위 월 5,000,000, 쓰기 요청 단위 월 1,000,000, 저장 30GB, Free Tier(25GB) 미포함. 항목 크기는 읽기 4KB·쓰기 1KB 이하로 가정(요청 1건 = 요청 단위 1개)",
+      "calculatorInput": "온디맨드, Standard 테이블 클래스, 읽기 요청 단위 월 5,000,000, 쓰기 요청 단위 월 1,000,000, 저장 30GB, Free Tier(25GB) 미포함. 항목 크기는 읽기 4KB·쓰기 1KB 이하로 가정(요청 1건 = 요청 단위 1개). 읽기 일관성은 강력한 일관성 100%(최종 일관성은 요청 단위가 0.5라 금액이 절반이 됨)",
       "excludes": ["백업·PITR", "스트림", "글로벌 테이블"],
       "calculator": {"usd": 9.48, "by": "syd348", "date": "2026-11-24"}
     },
