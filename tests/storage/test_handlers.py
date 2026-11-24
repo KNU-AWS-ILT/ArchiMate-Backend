@@ -4,8 +4,10 @@ import json
 
 import pytest
 
-from archimate.handlers import _app, explain, generate
+from archimate.handlers import _app, explain, generate, sync_prices
+from archimate.handlers._app import run_async
 from archimate.llm.providers.mock import load_fixture
+from archimate.pricing import load_price_book
 
 
 class FakeLambdaClient:
@@ -22,10 +24,17 @@ def lambda_client(repo, monkeypatch):
     monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "archimate-generate")
     real = generate.LambdaJobRunner
     monkeypatch.setattr(generate, "LambdaJobRunner", lambda name: real(name, client=client))
-    for cached in (_app.get_repo, generate._asgi, explain._asgi):
+    caches = (
+        _app.get_repo,
+        _app.get_price_store,
+        _app.get_price_source,
+        generate._asgi,
+        explain._asgi,
+    )
+    for cached in caches:
         cached.cache_clear()
     yield client
-    for cached in (_app.get_repo, generate._asgi, explain._asgi):
+    for cached in caches:
         cached.cache_clear()
 
 
@@ -100,3 +109,31 @@ def test_generate_flow_through_gateway_events(lambda_client):
 def test_missing_cognito_claims_is_unauthorized(lambda_client):
     status, body, _ = call(generate, gateway_event("GET", "/api/v1/designs/jobs/x", sub=None))
     assert (status, body["code"]) == (401, "UNAUTHORIZED")
+
+
+def _run_generated_job(lambda_client) -> list[dict]:
+    answers = json.loads(load_fixture("demo_answers.json"))
+    _, body, _ = call(generate, gateway_event("POST", "/api/v1/designs", body={"answers": answers}))
+    job_id = body["jobId"]
+    generate.handler(json.loads(lambda_client.calls[-1]["Payload"]), None)
+    _, body, _ = call(generate, gateway_event("GET", f"/api/v1/designs/jobs/{job_id}"))
+    assert body["status"] == "completed"
+    return body["designs"]
+
+
+def test_generate_uses_prices_from_the_table(lambda_client, price_store, book_with_rate):
+    run_async(price_store.put(book_with_rate(2000)))
+    designs = _run_generated_job(lambda_client)
+    assert {d["monthlyCost"]["exchangeRate"] for d in designs} == {2000.0}
+
+
+def test_generate_falls_back_to_snapshot_when_table_is_empty(lambda_client):
+    designs = _run_generated_job(lambda_client)
+    rate = load_price_book().exchange_rate.usd_krw
+    assert {d["monthlyCost"]["exchangeRate"] for d in designs} == {rate}
+
+
+def test_sync_prices_handler_fills_the_table(lambda_client, price_store):
+    result = sync_prices.handler({}, None)
+    assert result["ok"] is True and result["region"] == "ap-northeast-2"
+    assert run_async(price_store.get("ap-northeast-2")) == load_price_book()

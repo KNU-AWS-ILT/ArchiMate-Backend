@@ -17,7 +17,13 @@ from mangum import Mangum
 
 from archimate.api import service
 from archimate.api.runner import RUN_JOB_ACTION, LambdaJobRunner
-from archimate.handlers._app import build_app, get_repo, run_async, use_event_loop
+from archimate.handlers._app import (
+    build_app,
+    get_price_source,
+    get_repo,
+    run_async,
+    use_event_loop,
+)
 
 
 @lru_cache
@@ -29,7 +35,9 @@ def _asgi() -> Mangum:
 
 def handler(event: dict[str, Any], context: Any) -> Any:
     if event.get("action") == RUN_JOB_ACTION:
-        run_async(service.run_design_job(get_repo(), event["jobId"]))
+        run_async(
+            service.run_design_job(get_repo(), event["jobId"], price_source=get_price_source())
+        )
         return {"ok": True}
     use_event_loop()
     return _asgi()(event, context)
