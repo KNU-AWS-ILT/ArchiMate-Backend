@@ -2,8 +2,8 @@
   "id": "student_study_booking",
   "title": "학생 팀 프로젝트: 스터디룸 예약 (예산 0원, Free Tier)",
   "persona": "학생 프로젝트 팀",
-  "status": "draft",
-  "note": "PM 확인 필요. 예산 0원 → Free Tier 안에서만 설계하는지",
+  "status": "confirmed",
+  "note": "PM 확인 완료(2026-11-23, #25). 예산 0원 → Free Tier 안에서만 설계하는지",
   "answers": {
     "serviceType": "web_app",
     "concurrentUsers": "under_100",

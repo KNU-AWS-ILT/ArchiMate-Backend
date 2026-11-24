@@ -2,8 +2,8 @@
   "id": "side_project_ai_summary",
   "title": "사이드 프로젝트: AI 강의 노트 요약 (월 3만 원)",
   "persona": "동아리·사이드 프로젝트",
-  "status": "draft",
-  "note": "PM 확인 필요. AI 서비스 유형, 낮은 예산, 운영 부담 최소",
+  "status": "confirmed",
+  "note": "PM 확인 완료(2026-11-23, #25). AI 서비스 유형, 낮은 예산, 운영 부담 최소",
   "answers": {
     "serviceType": "ai_chatbot",
     "concurrentUsers": "under_100",
