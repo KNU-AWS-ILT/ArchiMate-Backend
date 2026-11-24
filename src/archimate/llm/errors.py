@@ -118,7 +118,13 @@ class AllTiersFailedError(LLMError):
         """모든 안이 같은 종류의 오류로 실패했으면 그 예외 (예: 셋 다 한도 초과 → LLMRateLimitError).
 
         API 계층은 이 값으로 error.code를 정한다. 원인이 섞여 있으면 None.
+        서버 쪽 원인(TierInternalError, TierCallbackError)은 타입이 달라도 같은 종류로 본다.
+        예: 두 안은 저장 실패, 한 안은 예상 못 한 오류 → INTERNAL_ERROR (#38 리뷰)
         """
-        if self.causes and len({type(c) for c in self.causes}) == 1:
+        if not self.causes:
+            return None
+        if len({type(c) for c in self.causes}) == 1:
             return self.causes[0]
+        if all(isinstance(c, TierInternalError) for c in self.causes):
+            return next((c for c in self.causes if type(c) is TierInternalError), self.causes[0])
         return None
