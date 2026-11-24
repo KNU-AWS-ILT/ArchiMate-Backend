@@ -237,6 +237,7 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 - 인프라(CDK)는 `build/lambda` 폴더를 그대로 Lambda 코드로 묶으면 됩니다. 핸들러는 `archimate.handlers.generate.handler` 등 그대로입니다.
 - ARM64용 wheel(`pydantic-core`, `jiter`)을 받을 뿐 실행하지 않아서 어떤 PC에서도 만들 수 있습니다.
 - 코드에서 `requirements-lambda.txt`에 없는 외부 패키지를 모듈 맨 위에서 import하면 `tests/test_lambda_requirements.py`가 실패합니다.
+- 버전은 `constraints-lambda.txt`가 하위 의존성까지 `==`로 고정합니다. 배포일에 빌드해도 확인한 버전이 들어가고, 의존성을 올릴 때는 새로 빌드해 확인한 뒤 이 파일도 같이 고칩니다.
 
 ---
 

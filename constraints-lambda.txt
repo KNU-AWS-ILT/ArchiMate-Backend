@@ -1,0 +1,34 @@
+# Lambda 배포 패키지의 버전 고정 (pip --constraint). requirements-lambda.txt의 패키지와 그 하위 의존성이 모두 있다.
+#
+# 이유: requirements-lambda.txt는 `>=`라서 배포일에 빌드하면 확인한 것과 다른 버전이 들어갈 수 있다.
+# 2026-11-23에 `python scripts/build_lambda.py`(ARM64, Python 3.12)가 설치한 버전이고, 그때 테스트·import를 확인했다.
+# 의존성을 올릴 때는 새로 빌드해서 확인한 뒤 이 파일을 같이 고친다.
+annotated-doc==0.0.7
+annotated-types==0.8.0
+anthropic==2.12.0
+anyio==4.16.0
+boto3==1.44.9
+botocore==1.44.9
+docstring-parser==0.18.0
+fastapi==0.165.0
+h11==0.16.0
+httpcore2==2.16.2
+httpx2==2.16.2
+idna==3.20
+jiter==0.19.0
+jmespath==1.1.0
+mangum==0.22.0
+opentelemetry-api==1.45.2
+pydantic==2.14.4
+pydantic-core==2.50.5
+pydantic-settings==2.16.3
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.4
+s3transfer==0.19.3
+six==1.17.0
+sniffio==1.3.1
+starlette==1.10.0
+truststore==0.10.5
+typing-extensions==4.16.0
+typing-inspection==0.4.5
+urllib3==2.8.0

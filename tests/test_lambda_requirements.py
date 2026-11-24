@@ -87,3 +87,15 @@ def test_packages_installed_with_others_are_really_provided():
 
 def test_lambda_does_not_bundle_local_only_packages():
     assert not ({"google_genai", "uvicorn"} & lambda_requirements())
+
+
+def test_every_lambda_requirement_is_pinned_in_the_constraints():
+    """배포일에 빌드해도 확인한 버전이 들어가도록, 직접 의존성은 모두 ==로 고정돼 있어야 한다."""
+    lines = [
+        line.split("#", 1)[0].strip()
+        for line in (ROOT / "constraints-lambda.txt").read_text("utf-8").splitlines()
+    ]
+    pins = [line for line in lines if line]
+    assert pins and all("==" in line for line in pins), "제약 파일은 모두 ==로 고정해야 해요"
+    pinned = {_normalize(line.split("==", 1)[0]) for line in pins}
+    assert lambda_requirements() - pinned == set()

@@ -16,11 +16,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS = ROOT / "requirements-lambda.txt"
+CONSTRAINTS = (
+    ROOT / "constraints-lambda.txt"
+)  # 하위 의존성까지 버전 고정 (빌드 날짜와 상관없이 같은 결과)
 LIMIT_MB = 250  # 압축을 푼 배포 패키지 한도
 WARN_MB = 220
 
-# 배포 패키지에서 뺄 것 (실행에 필요 없다)
-_PRUNE_DIRS = {"__pycache__", "tests"}
+# 배포 패키지에서 뺄 것 (실행에 필요 없다). 의존성의 `tests` 폴더는 지우지 않는다:
+# 실제로 쓰는 하위 모듈이 있어도 Lambda에서만 깨져서 알아채기 어렵다.
+_PRUNE_DIRS = {"__pycache__"}
 _PRUNE_SUFFIXES = {".pyc", ".pyo"}
 
 # AL2023(glibc 2.34) 위에서 도는 ARM64용 manylinux 태그. 패키지마다 쓰는 태그가 달라 여러 개를 허용한다.
@@ -35,6 +39,8 @@ def pip_command(out: Path, platform: str, python_version: str) -> list[str]:
         "install",
         "--requirement",
         str(REQUIREMENTS),
+        "--constraint",
+        str(CONSTRAINTS),
         "--target",
         str(out),
         "--upgrade",
