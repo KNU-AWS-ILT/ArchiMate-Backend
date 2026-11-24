@@ -36,7 +36,7 @@ async def main() -> None:
 
     answers = json.loads(args.answers.read_text("utf-8")) if args.answers else DEMO_ANSWERS
     req = build_requirements(answers)
-    tiers = [Tier(t) for t in args.tier] if args.tier else list(Tier)
+    tiers = [Tier(t) for t in args.tier] if args.tier else None  # 생략 시 LLM_TIERS
 
     out = Path("out")
     out.mkdir(exist_ok=True)

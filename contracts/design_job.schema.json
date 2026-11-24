@@ -704,6 +704,7 @@
           "$ref": "#/$defs/Tier"
         },
         "reason": {
+          "description": "실패 이유 코드 (내부 진단용). 값: LLM_RATE_LIMITED(AI 호출 한도 초과 (재시도 후에도)), LLM_TIMEOUT(AI 응답 시간 초과 또는 전체 기한 초과), LLM_INVALID_OUTPUT(AI 출력이 재시도 후에도 검증을 통과하지 못함), LLM_PROVIDER_ERROR(AI 제공자 오류 (5xx, 네트워크 등)), LLM_CONFIG_ERROR(AI 설정 오류 (API 키, 모델 권한 등)), TIER_INTERNAL_ERROR(AI 호출 밖의 예상 못 한 오류), TIER_CALLBACK_FAILED(비용 계산·저장 중 오류), INTERNAL_ERROR(작업이 중단됨 (서버 재시작, 시간 초과로 강제 종료)), DESIGN_GENERATION_FAILED(원인 정보 없이 전체 실패). 프론트는 이 값으로 문구를 나누지 않고 안별 공통 문구를 쓴다",
           "title": "Reason",
           "type": "string"
         }
