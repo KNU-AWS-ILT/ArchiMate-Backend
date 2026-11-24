@@ -49,6 +49,7 @@ PRICES = PriceBook.model_validate(
         "alb": {"perHour": 0.02},
         "natGateway": {"perHour": 0.05, "perGbProcessed": 0.05},
         "elasticache": {"instanceHourly": {"cache.t4g.micro": 0.02}},
+        "ecsFargate": {"vcpuHourly": 0.04, "gbHourly": 0.005},
     }
 )
 
@@ -254,3 +255,70 @@ def test_excluded_node_prevents_zero_won_claim():
     assert c.free_tier is False
     assert "0원" not in c.free_tier_note
     assert "빠진 항목" in c.free_tier_note
+
+
+# ── ECS Fargate (#35) ──
+
+
+def test_ecs_fargate_hourly_with_tasks():
+    # (0.5 vCPU × 0.04 + 1GB × 0.005) × 730시간 × 2개 = 0.025 × 730 × 2 = 36.5 USD → 36,500원
+    c = cost_of(
+        node(
+            "task",
+            AwsService.ECS_FARGATE,
+            vcpu=0.5,
+            memory_mb=1024,
+            instance_count=2,
+            hours_per_month=730,
+        )
+    )
+    item = c.items[0]
+    assert (item.amount_usd, item.amount) == (36.5, 36_500)
+    assert "0.5 vCPU·1024MB 태스크 2개" in item.note
+    assert c.total == 36_500
+
+
+def test_ecs_fargate_memory_is_billed_per_gb_not_per_mb():
+    # 2 vCPU·4096MB: (2 × 0.04 + 4 × 0.005) × 100시간 × 1개 = 0.1 × 100 = 10 USD
+    c = cost_of(
+        node(
+            "task",
+            AwsService.ECS_FARGATE,
+            vcpu=2,
+            memory_mb=4096,
+            instance_count=1,
+            hours_per_month=100,
+        )
+    )
+    assert c.items[0].amount_usd == 10.0
+
+
+def test_ecs_fargate_without_vcpu_is_null():
+    c = cost_of(
+        node(
+            "task",
+            AwsService.ECS_FARGATE,
+            memory_mb=1024,
+            instance_count=1,
+            hours_per_month=730,
+        )
+    )
+    assert c.items[0].amount is None and "사용량" in c.items[0].note
+    assert c.total == 0
+
+
+def test_snapshot_fargate_prices_match_aws_price_list():
+    """서울 리전 Linux/x86 단가. AWS Price List(AmazonECS, 2026-11-11 게시)의 값과 같다."""
+    fargate = load_price_book().ecs_fargate
+    assert (fargate.vcpu_hourly, fargate.gb_hourly) == (0.04656, 0.00511)
+
+
+def test_scalable_fixture_prices_its_fargate_node():
+    draft = DesignDraft.model_validate_json(load_fixture("design_scalable.json"))
+    design = Design(tier=Tier.SCALABLE, **draft.model_dump(by_alias=False))
+    c = estimate_monthly_cost(design, monthly_budget=500_000, prices=load_price_book())
+    fargate_ids = {
+        n.id for n in design.architecture.nodes if n.service_type == AwsService.ECS_FARGATE
+    }
+    priced = [i for i in c.items if i.node_id in fargate_ids]
+    assert priced and all(i.amount is not None and i.amount > 0 for i in priced)

@@ -60,7 +60,7 @@
 
 * **기능 소개**
 
-> 3안의 노드별 사용량에 AWS 공식 단가를 적용해 월 예상 비용과 Free Tier 적용 여부를 계산합니다. (주요 서비스 8종: Lambda, S3, DynamoDB, RDS, EC2, CloudFront, API Gateway, ALB)
+> 3안의 노드별 사용량에 AWS 공식 단가를 적용해 월 예상 비용과 Free Tier 적용 여부를 계산합니다. (계산 대상 11종: Lambda, S3, DynamoDB, RDS, EC2, CloudFront, API Gateway, ALB, NAT Gateway, ElastiCache, ECS Fargate. 그 밖의 서비스는 금액 없이 사유만 표시합니다)
 > 단가는 매일 새벽 Price List API에서 동기화해 두고, 3안이 생성될 때마다 계산해 `monthlyCost`에 채웁니다.
 
 * **API 명세**
