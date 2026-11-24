@@ -1215,8 +1215,8 @@
       "id": "job_demo_scalable",
       "monthlyCost": {
         "currency": "KRW",
-        "total": 228971,
-        "totalUsd": 165.92,
+        "total": 286171,
+        "totalUsd": 207.37,
         "exchangeRate": 1380.0,
         "exchangeRateDate": "2026-11-20",
         "priceDate": "2026-11-20",
@@ -1250,9 +1250,9 @@
           },
           {
             "nodeId": "app",
-            "amount": null,
-            "amountUsd": null,
-            "note": "비용 계산 대상이 아니에요"
+            "amount": 57200,
+            "amountUsd": 41.45,
+            "note": "0.5 vCPU·1024MB 태스크 2개, 월 730시간 기준 (임시 저장소 20GB 초과분 제외)"
           },
           {
             "nodeId": "cache",
