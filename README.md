@@ -202,6 +202,7 @@ python scripts/llm/try_generate.py --explain app_db        # 첫 번째 안의 �
 python evals/llm/run_eval.py --runs 3 --interval 20        # 대표 시나리오 5종 평가 → out/eval/ (성공률·응답 시간)
 python scripts/export_contracts.py                         # 스키마 변경 시 contracts/ 갱신
 python scripts/verify_prices.py                            # 단가 스냅샷을 AWS 공개 Price List와 대조 (인증 불필요)
+python evals/pricing/run_cost_check.py                     # 비용 오차 ±20% 검증 표 (Calculator 값은 evals/pricing/cases.json에 입력)
 ruff check . && ruff format . && pytest                    # 린트·포맷·테스트
 ```
 

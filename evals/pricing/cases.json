@@ -1,0 +1,125 @@
+{
+  "about": "비용 오차(±20%) 검증 케이스 (#25). 요청 수 입력란의 단위(건/천 건/백만 건)를 꼭 확인한다(API Gateway·DynamoDB 등은 기본 단위가 백만 건). 같은 사용량을 우리 계산기와 AWS Pricing Calculator(calculator.aws, 로그인 불필요)에 넣고 월 금액(USD)을 비교한다. 무료 한도는 양쪽 모두 빼지 않는다(Calculator에서 Free Tier를 끄거나 0으로 둔다). 우리 계산기가 제외하는 요금은 Calculator에서도 0으로 두고 excludes에 적는다.",
+  "region": "Asia Pacific (Seoul) ap-northeast-2",
+  "cases": [
+    {
+      "id": "lambda_small",
+      "service": "lambda",
+      "title": "Lambda 소규모 (API 처리)",
+      "usage": {"monthlyRequests": 1000000, "avgDurationMs": 200, "memoryMb": 512},
+      "calculatorInput": "요청 수 월 1,000,000, 평균 실행 시간 200ms, 메모리 512MB, 아키텍처 x86, 임시 스토리지 512MB(기본), Free Tier 미포함",
+      "excludes": ["임시 스토리지 512MB 초과분", "Provisioned Concurrency"],
+      "calculator": {"usd": 1.87, "by": "syd348", "date": "2026-11-24"}
+    },
+    {
+      "id": "lambda_large",
+      "service": "lambda",
+      "title": "Lambda 대규모 (AI 처리)",
+      "usage": {"monthlyRequests": 10000000, "avgDurationMs": 1000, "memoryMb": 1024},
+      "calculatorInput": "요청 수 월 10,000,000, 평균 실행 시간 1000ms, 메모리 1024MB, 아키텍처 x86, Free Tier 미포함",
+      "excludes": ["임시 스토리지 512MB 초과분", "Provisioned Concurrency"],
+      "calculator": {"usd": 168.67, "by": "syd348", "date": "2026-11-24"}
+    },
+    {
+      "id": "api_gateway_rest",
+      "service": "api_gateway",
+      "title": "API Gateway REST API",
+      "usage": {"monthlyRequests": 3000000},
+      "calculatorInput": "REST API, 요청 수 월 3,000,000, 캐시 없음, Free Tier 미포함",
+      "excludes": ["API 캐시", "데이터 전송"],
+      "calculator": {"usd": 10.5, "by": "syd348", "date": "2026-11-24"}
+    },
+    {
+      "id": "s3_standard",
+      "service": "s3",
+      "title": "S3 Standard 저장",
+      "usage": {"storageGb": 100},
+      "calculatorInput": "S3 Standard, 저장 용량 100GB/월, PUT·GET 요청 0, 데이터 전송 0",
+      "excludes": ["요청 요금(PUT·GET)", "데이터 전송"],
+      "calculator": {"usd": 2.5, "by": "syd348", "date": "2026-11-24"}
+    },
+    {
+      "id": "cloudfront_asia",
+      "service": "cloudfront",
+      "title": "CloudFront (아시아 사용자)",
+      "usage": {"monthlyRequests": 6000000, "dataTransferOutGb": 572},
+      "calculatorInput": "Asia Pacific(한국·싱가포르 등) 대상 데이터 전송 572GB/월, HTTPS 요청 6,000,000, 다른 지역 0, Free Tier(1TB·1천만 건) 미포함",
+      "excludes": ["오리진으로의 전송", "CloudFront Functions·Lambda@Edge"],
+      "calculator": {"usd": 75.84, "by": "syd348", "date": "2026-11-24"}
+    },
+    {
+      "id": "dynamodb_on_demand",
+      "service": "dynamodb",
+      "title": "DynamoDB 온디맨드",
+      "usage": {"monthlyReads": 5000000, "monthlyWrites": 1000000, "storageGb": 30},
+      "calculatorInput": "온디맨드, Standard 테이블 클래스, 읽기 요청 단위 월 5,000,000, 쓰기 요청 단위 월 1,000,000, 저장 30GB, Free Tier(25GB) 미포함. 항목 크기는 읽기 4KB·쓰기 1KB 이하로 가정(요청 1건 = 요청 단위 1개). 읽기 일관성은 강력한 일관성 100%(최종 일관성은 요청 단위가 0.5라 금액이 절반이 됨)",
+      "excludes": ["백업·PITR", "스트림", "글로벌 테이블"],
+      "calculator": {"usd": 9.48, "by": "syd348", "date": "2026-11-24"}
+    },
+    {
+      "id": "rds_single_az",
+      "service": "rds",
+      "title": "RDS MySQL Single-AZ",
+      "usage": {"instanceType": "db.t4g.micro", "instanceCount": 1, "storageGb": 20, "hoursPerMonth": 730, "multiAz": false},
+      "calculatorInput": "RDS for MySQL, db.t4g.micro 1대, Single-AZ, 온디맨드, 월 730시간(100%), gp3 20GB, 백업 0",
+      "excludes": ["백업 스토리지", "gp3 추가 IOPS·처리량", "데이터 전송"],
+      "calculator": {"usd": null, "by": null, "date": null}
+    },
+    {
+      "id": "rds_multi_az",
+      "service": "rds",
+      "title": "RDS MySQL Multi-AZ",
+      "usage": {"instanceType": "db.t3.small", "instanceCount": 1, "storageGb": 50, "hoursPerMonth": 730, "multiAz": true},
+      "calculatorInput": "RDS for MySQL, db.t3.small 1대, Multi-AZ(대기 인스턴스 1개), 온디맨드, 월 730시간, gp3 50GB, 백업 0",
+      "excludes": ["백업 스토리지", "gp3 추가 IOPS·처리량", "데이터 전송"],
+      "calculator": {"usd": null, "by": null, "date": null}
+    },
+    {
+      "id": "ec2_linux",
+      "service": "ec2",
+      "title": "EC2 Linux 2대",
+      "usage": {"instanceType": "t3.small", "instanceCount": 2, "hoursPerMonth": 730},
+      "calculatorInput": "EC2 Linux, t3.small 2대, 온디맨드, 월 730시간, 공유 테넌시, EBS 0GB, 데이터 전송 0",
+      "excludes": ["EBS 볼륨", "퍼블릭 IPv4 주소", "데이터 전송"],
+      "note": "EC2 단가는 아직 공개 Price List와 대조하지 않았다 (scripts/verify_prices.py 범위 밖)",
+      "calculator": {"usd": null, "by": null, "date": null}
+    },
+    {
+      "id": "alb_hours",
+      "service": "alb",
+      "title": "Application Load Balancer",
+      "usage": {"hoursPerMonth": 730},
+      "calculatorInput": "Application Load Balancer 1개, 월 730시간. 처리 데이터·연결 수·규칙은 최소값(0)으로 두어 LCU 요금이 0이 되게",
+      "excludes": ["LCU(처리량·연결·규칙) 요금"],
+      "calculator": {"usd": null, "by": null, "date": null}
+    },
+    {
+      "id": "nat_gateway",
+      "service": "nat_gateway",
+      "title": "NAT Gateway 1개",
+      "usage": {"hoursPerMonth": 730, "dataTransferOutGb": 100},
+      "calculatorInput": "VPC > NAT Gateway 1개, 월 730시간, 처리 데이터 100GB/월",
+      "excludes": ["NAT를 거친 인터넷 전송 요금(데이터 전송)"],
+      "note": "NAT Gateway 단가는 아직 공개 Price List와 대조하지 않았다 (scripts/verify_prices.py 범위 밖)",
+      "calculator": {"usd": null, "by": null, "date": null}
+    },
+    {
+      "id": "elasticache_redis",
+      "service": "elasticache",
+      "title": "ElastiCache Redis 노드",
+      "usage": {"instanceType": "cache.t4g.small", "instanceCount": 1, "hoursPerMonth": 730},
+      "calculatorInput": "ElastiCache, 노드 기반 클러스터, 엔진 Redis OSS, cache.t4g.small 1개, 온디맨드, 월 730시간",
+      "excludes": ["백업 스토리지", "데이터 전송"],
+      "calculator": {"usd": null, "by": null, "date": null}
+    },
+    {
+      "id": "fargate_tasks",
+      "service": "ecs_fargate",
+      "title": "ECS Fargate 태스크 2개",
+      "usage": {"vcpu": 0.5, "memoryMb": 1024, "instanceCount": 2, "hoursPerMonth": 730},
+      "calculatorInput": "AWS Fargate, Linux/x86, 태스크 2개, 태스크당 vCPU 0.5·메모리 1GB, 하루 24시간 30.4일(월 730시간), 임시 스토리지 20GB(기본)",
+      "excludes": ["임시 스토리지 20GB 초과분", "로드 밸런서·데이터 전송"],
+      "calculator": {"usd": null, "by": null, "date": null}
+    }
+  ]
+}
