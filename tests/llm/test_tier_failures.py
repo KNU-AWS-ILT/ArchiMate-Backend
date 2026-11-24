@@ -48,7 +48,8 @@ def req():
 
 @pytest.fixture
 def settings():
-    return LLMSettings(_env_file=None, provider="mock")
+    # 일시 오류 재시도(#23)는 test_retries.py에서 본다. 여기서는 안별 실패 처리만 확인
+    return LLMSettings(_env_file=None, provider="mock", max_transient_retries=0)
 
 
 async def run(req, settings, fail=None, **kwargs):
@@ -173,3 +174,22 @@ def test_duplicate_phase_key_is_rejected():
     guide.phases[1].key = guide.phases[0].key
     errors = check_operations_guide(guide)
     assert any("단계 key" in e and "중복" in e for e in errors)
+
+
+# ── 실패 이유 목록 (#20 리뷰) ──
+
+
+def test_every_tier_failure_reason_is_documented():
+    """안별 실패로 올라갈 수 있는 LLM 예외 code는 모두 TIER_FAILURE_REASONS에 있어야 한다."""
+    from archimate.llm import errors
+    from archimate.schemas import TIER_FAILURE_REASONS, TierFailure
+
+    codes = {
+        cls.code
+        for cls in vars(errors).values()
+        if isinstance(cls, type) and issubclass(cls, errors.LLMError) and cls is not errors.LLMError
+    }
+    assert codes - set(TIER_FAILURE_REASONS) == set()
+    assert "INTERNAL_ERROR" in TIER_FAILURE_REASONS  # API 계층(작업 취소·정체)
+    description = TierFailure.model_fields["reason"].description
+    assert all(code in description for code in TIER_FAILURE_REASONS)

@@ -28,6 +28,9 @@ class MockProvider:
 
     def __init__(self, responses: list[str] | None = None) -> None:
         self._queue = list(responses) if responses is not None else None
+        # 고정 응답 모드: 요청 내용과 상관없이 데모 응답을 준다. 파이프라인은 이때 요청에 따라 정답이
+        # 달라지는 검증(충돌 안내, 예산 문구, 필수 서비스, 예산 알람 금액)을 건너뛴다 (#34 리뷰)
+        self.fixed_responses = responses is None
         self.calls: list[list[ChatMessage]] = []  # 테스트에서 호출 내용 확인용
 
     async def generate_json(

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
 from archimate.llm import AllTiersFailedError, LLMError, explain_node
 from archimate.llm import generate_designs as llm_generate_designs
-from archimate.pricing import estimate_monthly_cost
+from archimate.pricing import PriceBook, PriceSource, estimate_monthly_cost
 from archimate.schemas import (
     CostItem,
     Design,
@@ -108,12 +108,12 @@ def _expire_if_stale(job: JobRecord, now: datetime) -> JobRecord:
     if done:
         return job.model_copy(update={"status": JobStatus.COMPLETED, "failures": failures})
     error = to_error_response(
-        ApiError(500, ErrorCode.INTERNAL_ERROR, "작업이 중단됐어요. 다시 시도해 주세요.", retryable=True),
+        ApiError(
+            500, ErrorCode.INTERNAL_ERROR, "작업이 중단됐어요. 다시 시도해 주세요.", retryable=True
+        ),
         request_id=job.job_id,
     )
-    return job.model_copy(
-        update={"status": JobStatus.FAILED, "failures": failures, "error": error}
-    )
+    return job.model_copy(update={"status": JobStatus.FAILED, "failures": failures, "error": error})
 
 
 async def get_job(
@@ -139,10 +139,12 @@ async def get_guide(repo: DesignRepository, design_id: str, user_id: str) -> Ope
 # ── ④-2 생성 (JobRunner가 뒤에서 실행) ───────────────────
 
 
-def _safe_monthly_cost(job_id: str, design: Design, budget: int) -> MonthlyCost | None:
-    """비용 계산이 실패해도 안 자체는 보여 준다 (그 안만 monthlyCost: null)."""
+def _safe_monthly_cost(
+    job_id: str, design: Design, budget: int, prices: PriceBook | None = None
+) -> MonthlyCost | None:
+    """비용 계산이 실패해도 안 자체는 보여 준다 (그 안만 monthlyCost: null). prices가 없으면 스냅샷."""
     try:
-        return estimate_monthly_cost(design, monthly_budget=budget)
+        return estimate_monthly_cost(design, monthly_budget=budget, prices=prices)
     except Exception:
         logger.exception("cost.failed job_id=%s tier=%s", job_id, design.tier)
         return None
@@ -162,11 +164,14 @@ async def run_design_job(
     *,
     generate: GenerateFn = llm_generate_designs,
     mock_delay_s: float = 0.0,
+    price_source: PriceSource | None = None,
 ) -> None:
     """3안 생성 → 안마다 비용 계산·저장 → 최종 상태 저장. 실패도 job에 기록하고 예외를 밖으로 내지 않는다.
 
     mock_delay_s: 프론트 개발용 지연(MOCK_DELAY_S). 고정 응답은 바로 끝나므로
     queued·running을 각각 이만큼 보여 주고, 안은 Tier 순서대로 이 간격을 두고 저장한다.
+
+    price_source: 비용 계산에 쓸 단가 (AWS에서는 prices 테이블). 없으면 패키지 스냅샷을 쓴다.
     """
     job = await repo.get_job(job_id)
     if job is None:
@@ -181,6 +186,12 @@ async def run_design_job(
 
     budget = job.requirements.monthly_budget
     tier_order = list(Tier)
+    prices: PriceBook | None = None
+    if price_source is not None:
+        try:
+            prices = await price_source.get()  # 한 작업의 세 안은 같은 단가표로 계산한다
+        except Exception:
+            logger.exception("prices.source_failed job_id=%s", job_id)  # 스냅샷으로 계속한다
 
     async def on_tier_done(design: Design) -> None:
         if mock_delay_s:
@@ -188,7 +199,7 @@ async def run_design_job(
             await asyncio.sleep(mock_delay_s * (tier_order.index(design.tier) + 1))
         result = DesignResult(
             id=make_design_id(job_id, design.tier),
-            monthly_cost=_safe_monthly_cost(job_id, design, budget),
+            monthly_cost=_safe_monthly_cost(job_id, design, budget, prices),
             **design.model_dump(by_alias=False),
         )
         await repo.add_design(job_id, result)

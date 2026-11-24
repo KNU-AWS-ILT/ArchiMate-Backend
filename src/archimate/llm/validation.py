@@ -4,9 +4,11 @@
 """
 
 import re
+from functools import cache
 
 from archimate.schemas import (
     REQUIRED_USAGE_FIELDS,
+    SERVICE_INFO,
     Architecture,
     AwsService,
     DesignDraft,
@@ -20,8 +22,127 @@ _ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 _PRICE_PATTERN = re.compile(r"\$\s*\d|\d[\d,.]*\s*(만|천|억)?\s*(원|달러|USD|KRW)")
 
 
+@cache
+def allowed_instance_types() -> dict[AwsService, tuple[str, ...]]:
+    """단가 스냅샷에 있는 인스턴스 유형 (#5). 이 밖의 유형은 월 비용을 계산할 수 없다."""
+    from archimate.pricing import load_price_book  # 단가 데이터는 비용 모듈이 관리한다
+
+    p = load_price_book()
+    return {
+        AwsService.RDS: tuple(p.rds.instance_hourly),
+        AwsService.EC2: tuple(p.ec2.instance_hourly),
+        AwsService.ELASTICACHE: tuple(p.elasticache.instance_hourly),
+    }
+
+
+# ── 예산 0원 안내 (#5) ─────────────────────────────────
+# 기간 제한 없는 '항상 무료' 한도로 0원 운영이 가능한 서비스. 나머지는 쓰는 만큼 요금이 생긴다.
+# (S3·API Gateway의 12개월 무료는 2025년 7월 이후 가입 계정에 없다)
+ALWAYS_FREE_SERVICES = frozenset(
+    {
+        AwsService.USERS,
+        AwsService.LAMBDA,
+        AwsService.DYNAMODB,
+        AwsService.CLOUDFRONT,
+        AwsService.COGNITO,
+        AwsService.SQS,
+        AwsService.SNS,
+        AwsService.EVENTBRIDGE,
+        AwsService.CLOUDWATCH,
+    }
+)
+# 켜 두기만 해도 시간 요금이 나오는 서비스 (예산 0원을 확실히 넘는다)
+FIXED_COST_SERVICES = frozenset(
+    {
+        AwsService.RDS,
+        AwsService.EC2,
+        AwsService.ALB,
+        AwsService.NAT_GATEWAY,
+        AwsService.ELASTICACHE,
+        AwsService.ECS_FARGATE,
+    }
+)
+ZERO_BUDGET_NOTE = "사용량에 따라 소액 요금이 생길 수 있어요"
+ZERO_BUDGET_FIXED_NOTE = "켜 두는 동안 고정 요금이 나와 예산 0원을 넘어요"
+# 예산 0원인데 요금이 생기는 서비스를 쓰면서 0원을 단정하는 표현 (평가에서 실제로 나온 문구)
+_ZERO_COST_CLAIM = re.compile(
+    r"완벽히\s*부합|모두\s*충당|추가\s*비용[이은]?\s*(전혀\s*)?(발생하지|들지)\s*않|"
+    r"비용\s*부담[이은]?\s*없|0원\s*(내에서|범위\s*내|안에서|으로)"
+)
+
+
+def _names(services: set[AwsService]) -> str:
+    return "·".join(SERVICE_INFO[s][0] for s in AwsService if s in services)
+
+
+def zero_budget_sentence(services: set[AwsService]) -> str | None:
+    """예산 0원 설계의 budgetNote에 들어가야 할 문장. 항상 무료 서비스만 쓰면 None."""
+    fixed = services & FIXED_COST_SERVICES
+    if fixed:
+        return f"{_names(fixed)}는 {ZERO_BUDGET_FIXED_NOTE}."
+    paid = services - ALWAYS_FREE_SERVICES
+    if paid:
+        return f"{_names(paid)}는 항상 무료가 아니라 {ZERO_BUDGET_NOTE}."
+    return None
+
+
+def check_budget_note(d: DesignDraft, monthly_budget: int) -> list[str]:
+    """예산 0원이면 요금이 생기는 서비스가 있을 때 budgetNote에 정해진 안내를 넣게 한다.
+
+    설계 설명이 "추가 비용 없음"이라고 단정하는데 화면의 월 비용은 0원이 아니어서 앞뒤가 맞지 않았다.
+    고정 요금 서비스(RDS 등)가 있으면 예산을 넘는다고, 사용량 과금 서비스만 있으면 소액 요금이라고 쓴다.
+    """
+    if monthly_budget != 0:
+        return []
+    sentence = zero_budget_sentence({n.service_type for n in d.architecture.nodes})
+    if sentence is None:
+        return []
+    errors = []
+    key = ZERO_BUDGET_FIXED_NOTE if ZERO_BUDGET_FIXED_NOTE in sentence else ZERO_BUDGET_NOTE
+    if key not in d.budget_note:
+        errors.append(f"예산이 0원이라 budgetNote에 다음 문장을 넣으세요: '{sentence}'")
+    if m := _ZERO_COST_CLAIM.search(d.budget_note):
+        errors.append(f"budgetNote의 '{m.group(0)}'처럼 0원을 단정하는 표현을 빼세요.")
+    return errors
+
+
 def _usage_alias(field: str) -> str:
     return Usage.model_fields[field].alias or field
+
+
+# 값이 정해져 있거나 무난한 기본값이 있는 필수 사용량은 LLM이 빠뜨려도 채운다 (#5).
+# 모델이 검증 피드백을 받고도 다른 필드를 또 빠뜨려 안 전체가 실패하는 일을 줄인다.
+# instanceType처럼 설계 판단이 필요한 값은 채우지 않고 검증으로 다시 요청한다.
+ALWAYS_ON_HOURS = 730
+USAGE_DEFAULTS: dict[AwsService, dict[str, object]] = {
+    AwsService.RDS: {
+        "hours_per_month": ALWAYS_ON_HOURS,
+        "instance_count": 1,
+        "multi_az": False,
+        "storage_gb": 20,  # RDS 최소 할당 용량
+    },
+    AwsService.EC2: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
+    AwsService.ALB: {"hours_per_month": ALWAYS_ON_HOURS},
+    # NAT 비용은 대부분 시간 요금이라 처리량은 작은 기본값으로 둔다 (모델이 피드백 후에도 자주 빠뜨림)
+    AwsService.NAT_GATEWAY: {"hours_per_month": ALWAYS_ON_HOURS, "data_transfer_out_gb": 10},
+    AwsService.ELASTICACHE: {"hours_per_month": ALWAYS_ON_HOURS, "instance_count": 1},
+}
+
+
+def fill_usage_defaults(d: DesignDraft) -> list[str]:
+    """빠진 필수 사용량을 USAGE_DEFAULTS로 채우고, 채운 항목을 'nodeId.field' 목록으로 돌려준다."""
+    filled: list[str] = []
+    for n in d.architecture.nodes:
+        defaults = USAGE_DEFAULTS.get(n.service_type)
+        if not defaults:
+            continue
+        if n.usage is None:
+            n.usage = Usage()
+        for field, value in defaults.items():
+            if getattr(n.usage, field) is None:
+                setattr(n.usage, field, value)
+                filled.append(f"{n.id}.{_usage_alias(field)}")
+    return filled
 
 
 def check_design(d: DesignDraft) -> list[str]:
@@ -98,7 +219,51 @@ def check_design(d: DesignDraft) -> list[str]:
                     f"노드 '{n.id}'({n.service_type.value})의 usage.{_usage_alias(field)}가 필요합니다."
                 )
 
+    # 인스턴스 유형은 단가가 있는 것만 (없으면 월 비용이 비어 합계가 작게 나온다)
+    allowed = allowed_instance_types()
+    for n in arch.nodes:
+        choices = allowed.get(n.service_type)
+        itype = n.usage.instance_type if n.usage else None
+        if choices and itype is not None and itype not in choices:
+            errors.append(
+                f"노드 '{n.id}'({n.service_type.value})의 instanceType '{itype}'은 쓸 수 없습니다. "
+                f"다음 중에서 고르세요: {', '.join(choices)}"
+            )
+
     return errors
+
+
+def budget_alarm_usd(monthly_budget: int) -> int:
+    """AWS Budgets에 넣을 달러 금액 (원화 예산을 단가 스냅샷 환율로 바꾼 값, 최소 1)."""
+    from archimate.pricing import load_price_book
+
+    return max(1, round(monthly_budget / load_price_book().exchange_rate.usd_krw))
+
+
+def check_budget_alarm(g: OperationsGuide, monthly_budget: int) -> list[str]:
+    """예산 알람 절차가 달러 금액(또는 예산 0원이면 제로 지출 예산)을 안내하는지 (#5).
+
+    AWS Budgets는 달러로만 입력할 수 있는데 "예산 금액을 300,000원으로 입력"처럼 안내하고 있었다.
+    """
+    texts = " ".join(
+        " ".join([s.title, s.desc, *s.todo, s.console_path or "", s.warn or ""])
+        for p in g.phases
+        for s in p.steps
+    )
+    if monthly_budget == 0:
+        if "제로 지출" in texts or "Zero spend" in texts:
+            return []
+        return [
+            "예산이 0원이므로 예산 알람 절차에서 AWS Budgets의 '제로 지출 예산(Zero spend budget)' "
+            "템플릿을 고르라고 안내하세요."
+        ]
+    usd = budget_alarm_usd(monthly_budget)
+    if str(usd) in texts and any(u in texts for u in ("USD", "달러", "$")):
+        return []
+    return [
+        f"AWS Budgets는 달러로만 입력합니다. 예산 알람 절차에 예산 금액 '{usd}'(USD)를 넣으라고 "
+        f"안내하세요 (월 예산 {monthly_budget:,}원 환산)."
+    ]
 
 
 def check_operations_guide(g: OperationsGuide, arch: Architecture | None = None) -> list[str]:
