@@ -9,7 +9,7 @@
       "usage": {"monthlyRequests": 1000000, "avgDurationMs": 200, "memoryMb": 512},
       "calculatorInput": "요청 수 월 1,000,000, 평균 실행 시간 200ms, 메모리 512MB, 아키텍처 x86, 임시 스토리지 512MB(기본), Free Tier 미포함",
       "excludes": ["임시 스토리지 512MB 초과분", "Provisioned Concurrency"],
-      "calculator": {"usd": null, "by": null, "date": null}
+      "calculator": {"usd": 1.87, "by": "syd348", "date": "2026-11-24"}
     },
     {
       "id": "lambda_large",
@@ -18,7 +18,7 @@
       "usage": {"monthlyRequests": 10000000, "avgDurationMs": 1000, "memoryMb": 1024},
       "calculatorInput": "요청 수 월 10,000,000, 평균 실행 시간 1000ms, 메모리 1024MB, 아키텍처 x86, Free Tier 미포함",
       "excludes": ["임시 스토리지 512MB 초과분", "Provisioned Concurrency"],
-      "calculator": {"usd": null, "by": null, "date": null}
+      "calculator": {"usd": 168.67, "by": "syd348", "date": "2026-11-24"}
     },
     {
       "id": "api_gateway_rest",
@@ -27,7 +27,7 @@
       "usage": {"monthlyRequests": 3000000},
       "calculatorInput": "REST API, 요청 수 월 3,000,000, 캐시 없음, Free Tier 미포함",
       "excludes": ["API 캐시", "데이터 전송"],
-      "calculator": {"usd": null, "by": null, "date": null}
+      "calculator": {"usd": 10.5, "by": "syd348", "date": "2026-11-24"}
     },
     {
       "id": "s3_standard",
@@ -36,7 +36,7 @@
       "usage": {"storageGb": 100},
       "calculatorInput": "S3 Standard, 저장 용량 100GB/월, PUT·GET 요청 0, 데이터 전송 0",
       "excludes": ["요청 요금(PUT·GET)", "데이터 전송"],
-      "calculator": {"usd": null, "by": null, "date": null}
+      "calculator": {"usd": 2.5, "by": "syd348", "date": "2026-11-24"}
     },
     {
       "id": "cloudfront_asia",
@@ -45,7 +45,7 @@
       "usage": {"monthlyRequests": 6000000, "dataTransferOutGb": 572},
       "calculatorInput": "Asia Pacific(한국·싱가포르 등) 대상 데이터 전송 572GB/월, HTTPS 요청 6,000,000, 다른 지역 0, Free Tier(1TB·1천만 건) 미포함",
       "excludes": ["오리진으로의 전송", "CloudFront Functions·Lambda@Edge"],
-      "calculator": {"usd": null, "by": null, "date": null}
+      "calculator": {"usd": 75.84, "by": "syd348", "date": "2026-11-24"}
     },
     {
       "id": "dynamodb_on_demand",
@@ -54,7 +54,7 @@
       "usage": {"monthlyReads": 5000000, "monthlyWrites": 1000000, "storageGb": 30},
       "calculatorInput": "온디맨드, Standard 테이블 클래스, 읽기 요청 단위 월 5,000,000, 쓰기 요청 단위 월 1,000,000, 저장 30GB, Free Tier(25GB) 미포함. 항목 크기는 읽기 4KB·쓰기 1KB 이하로 가정(요청 1건 = 요청 단위 1개)",
       "excludes": ["백업·PITR", "스트림", "글로벌 테이블"],
-      "calculator": {"usd": null, "by": null, "date": null}
+      "calculator": {"usd": 9.48, "by": "syd348", "date": "2026-11-24"}
     },
     {
       "id": "rds_single_az",
