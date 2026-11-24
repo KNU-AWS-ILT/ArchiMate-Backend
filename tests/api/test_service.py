@@ -1,6 +1,7 @@
 """service.py 단위 테스트 — 생성 실패·일부 실패·노드 설명 실패를 가짜 LLM 함수로 재현."""
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 
@@ -292,3 +293,69 @@ async def test_mixed_internal_and_llm_causes_stay_generation_failed(req):
     await service.run_design_job(repo, job_id, generate=fake_generate)
     job = await service.get_job(repo, job_id, "u1")
     assert job.error is not None and job.error.code == ErrorCode.DESIGN_GENERATION_FAILED
+
+
+# ── 1안 모드(LLM_TIERS): 시도하지 않은 안은 failures에 넣지 않는다 (#14) ──
+
+
+@pytest.fixture
+def single_tier(monkeypatch):
+    monkeypatch.setattr(service, "attempted_tiers", lambda: [Tier.MINIMAL_COST])
+
+
+async def test_single_tier_mode_stale_job_reports_only_attempted_tier(req, single_tier):
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+    await repo.claim_job(job_id)
+    created = (await repo.get_job(job_id)).created_at
+
+    job = await service.get_job(repo, job_id, "u1", now=created + timedelta(seconds=201))
+    assert job.status == JobStatus.FAILED
+    assert [f.tier for f in job.failures] == [Tier.MINIMAL_COST]
+
+
+async def test_single_tier_mode_cancelled_job_reports_only_attempted_tier(req, single_tier):
+    async def never_finishes(*_args, **_kwargs):
+        await asyncio.sleep(60)
+
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+    task = asyncio.create_task(service.run_design_job(repo, job_id, generate=never_finishes))
+    await asyncio.sleep(0.2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    job = await service.get_job(repo, job_id, "u1")
+    assert [f.tier for f in job.failures] == [Tier.MINIMAL_COST]
+
+
+async def test_single_tier_mode_generic_llm_error_reports_only_attempted_tier(req, single_tier):
+    async def fake_generate(_req, *, on_tier_done):
+        raise LLMTimeoutError("느림")
+
+    repo = InMemoryRepository()
+    job_id = await service.create_job(repo, "u1", req)
+    await service.run_design_job(repo, job_id, generate=fake_generate)
+    job = await service.get_job(repo, job_id, "u1")
+    assert [(f.tier, f.reason) for f in job.failures] == [(Tier.MINIMAL_COST, "LLM_TIMEOUT")]
+
+
+@pytest.fixture
+def fresh_settings():
+    """LLM 설정은 캐시되므로, 환경 변수를 바꾸는 테스트 앞뒤로 비워서 다른 테스트에 남지 않게 한다."""
+    from archimate.llm.settings import get_settings
+
+    get_settings.cache_clear()
+    yield get_settings
+    get_settings.cache_clear()
+
+
+def test_attempted_tiers_follow_the_llm_tiers_setting(monkeypatch, fresh_settings):
+    monkeypatch.setenv("LLM_TIERS", "minimal_cost, balanced")
+    fresh_settings.cache_clear()
+    assert service.attempted_tiers() == [Tier.MINIMAL_COST, Tier.BALANCED]
+
+    monkeypatch.setenv("LLM_TIERS", "")  # 비우면 3안 전체
+    fresh_settings.cache_clear()
+    assert service.attempted_tiers() == list(Tier)
