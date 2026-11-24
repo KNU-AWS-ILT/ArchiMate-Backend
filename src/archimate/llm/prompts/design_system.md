@@ -39,6 +39,8 @@
   - alb: hoursPerMonth
   - nat_gateway: hoursPerMonth, dataTransferOutGb(NAT를 거쳐 나가는 월 처리량)
   - elasticache: instanceType(예: cache.t4g.micro), instanceCount, hoursPerMonth
+  - ecs_fargate: vcpu(0.25·0.5·1·2·4 중 하나), memoryMb, instanceCount(태스크 수), hoursPerMonth. instanceType은 쓰지 않습니다
+    - vCPU별 메모리: 0.25 → 512~2048MB, 0.5 → 1024~4096MB, 1 → 2048~8192MB, 2 → 4096~16384MB, 4 → 8192~30720MB
 - 상시 실행 리소스의 hoursPerMonth는 730입니다.
 
 ## 다이어그램 구조 규칙 (architecture)

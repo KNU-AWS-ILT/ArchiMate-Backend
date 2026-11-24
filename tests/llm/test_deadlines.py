@@ -59,7 +59,8 @@ def settings(**kwargs) -> LLMSettings:
 def test_deadline_remaining_counts_down():
     d = Deadline(10)
     first = d.remaining()
-    time.sleep(0.01)
+    # Windows의 time.monotonic()은 약 15.6ms 단위로만 올라서 0.01초만 쉬면 값이 그대로일 수 있다 (CI ci-windows)
+    time.sleep(0.05)
     assert 9 < d.remaining() < first <= 10
 
 

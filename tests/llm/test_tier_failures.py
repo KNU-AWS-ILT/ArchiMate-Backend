@@ -193,3 +193,21 @@ def test_every_tier_failure_reason_is_documented():
     assert "INTERNAL_ERROR" in TIER_FAILURE_REASONS  # API 계층(작업 취소·정체)
     description = TierFailure.model_fields["reason"].description
     assert all(code in description for code in TIER_FAILURE_REASONS)
+
+
+def test_server_side_causes_of_different_types_are_one_cause():
+    # 저장 실패(TierCallbackError)와 예상 못 한 오류(TierInternalError)는 둘 다 서버 쪽 원인 (#38 리뷰)
+    from archimate.llm.errors import TierCallbackError, TierInternalError
+    from archimate.schemas import TierFailure
+
+    e = AllTiersFailedError(
+        failures=[TierFailure(tier=t, reason="x") for t in Tier],
+        causes=[TierCallbackError("저장"), TierCallbackError("저장"), TierInternalError("버그")],
+    )
+    assert type(e.common_cause) is TierInternalError
+
+    mixed = AllTiersFailedError(
+        failures=[TierFailure(tier=t, reason="x") for t in Tier],
+        causes=[TierCallbackError("저장"), TierInternalError("버그"), LLMTimeoutError("느림")],
+    )
+    assert mixed.common_cause is None

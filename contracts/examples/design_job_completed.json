@@ -39,7 +39,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -60,7 +61,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -81,7 +83,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -102,7 +105,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -123,7 +127,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -418,7 +423,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -439,7 +445,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -469,7 +476,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -490,7 +498,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -511,7 +520,8 @@
               "instanceType": "db.t4g.micro",
               "instanceCount": 1,
               "hoursPerMonth": 730,
-              "multiAz": false
+              "multiAz": false,
+              "vcpu": null
             }
           },
           {
@@ -834,7 +844,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -855,7 +866,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": null,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -876,7 +888,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": 730,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -897,7 +910,8 @@
               "instanceType": null,
               "instanceCount": null,
               "hoursPerMonth": 730,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -918,7 +932,8 @@
               "instanceType": null,
               "instanceCount": 2,
               "hoursPerMonth": 730,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": 0.5
             }
           },
           {
@@ -939,7 +954,8 @@
               "instanceType": "cache.t4g.micro",
               "instanceCount": 1,
               "hoursPerMonth": 730,
-              "multiAz": null
+              "multiAz": null,
+              "vcpu": null
             }
           },
           {
@@ -960,7 +976,8 @@
               "instanceType": "db.t4g.small",
               "instanceCount": 1,
               "hoursPerMonth": 730,
-              "multiAz": true
+              "multiAz": true,
+              "vcpu": null
             }
           },
           {
