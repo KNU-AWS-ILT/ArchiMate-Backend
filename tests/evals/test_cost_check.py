@@ -77,6 +77,9 @@ def test_verdict_by_threshold():
 
 def test_entered_calculator_value_is_compared(tmp_path, results):
     data = json.loads((ROOT / "evals/pricing/cases.json").read_text("utf-8"))
+    # 실제 파일에 입력된 값과 상관없이 첫 케이스 하나만 입력된 상태로 본다
+    for case in data["cases"]:
+        case["calculator"] = {"usd": None, "by": None, "date": None}
     data["cases"][0]["calculator"] = {"usd": 1.80, "by": "test", "date": "2026-11-25"}
     path = tmp_path / "cases.json"
     path.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
