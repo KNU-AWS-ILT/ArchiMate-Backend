@@ -42,7 +42,8 @@ OFFERS: dict[str, bool] = {
 PER_MILLION = 1_000_000.0  # Price List는 요청 1건 가격이라, 스냅샷의 '100만 건당' 단위로 바꾼다
 
 NOT_CHECKED = (
-    "EC2 인스턴스·NAT Gateway (AmazonEC2 Price List가 약 290MB라 확인하지 않음)",
+    "EC2 인스턴스·NAT Gateway (AmazonEC2 Price List가 약 290MB라 이 스크립트에서는 확인하지 않음."
+    " 단가 동기화는 Price List API로 이 항목도 가져온다)",
     "환율 (개발용 고정값)",
 )
 
@@ -136,10 +137,26 @@ class Spec:
     usagetype: str
     scale: float = 1.0  # Price List 값 × scale = 스냅샷 단위
     attrs: dict[str, str] = field(default_factory=dict)
+    # PriceBook 안의 위치 (필드 이름, 인스턴스 단가는 마지막이 유형 이름). Price List API로 값을 바꿀 때 쓴다
+    path: tuple[str, ...] = ()
 
 
-def specs(book: PriceBook) -> list[Spec]:
-    """대조할 단가 목록. PriceBook에 단가를 추가하면 여기에도 같이 추가한다."""
+# EC2 Linux 온디맨드 인스턴스를 하나로 좁히는 조건 (2026-11-25 공개 Price List로 확인)
+EC2_LINUX_ATTRS = {
+    "operatingSystem": "Linux",
+    "tenancy": "Shared",
+    "preInstalledSw": "NA",
+    "capacitystatus": "Used",
+    "operation": "RunInstances",
+}
+
+
+def specs(book: PriceBook, *, include_ec2: bool = False) -> list[Spec]:
+    """대조할 단가 목록. PriceBook에 단가를 추가하면 여기에도 같이 추가한다.
+
+    include_ec2: EC2 인스턴스·NAT Gateway도 넣는다. 공개 Price List 파일로 대조할 때는 파일이 커서
+    빼고(verify_prices.py), Price List Query API로 필요한 항목만 받을 때는 넣는다(price_list.py).
+    """
     out = [
         Spec(
             "Lambda",
@@ -148,6 +165,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AWSLambda",
             "APN2-Request",
             PER_MILLION,
+            path=("aws_lambda", "per_million_requests"),
         ),
         Spec(
             "Lambda",
@@ -155,6 +173,7 @@ def specs(book: PriceBook) -> list[Spec]:
             book.aws_lambda.per_gb_second,
             "AWSLambda",
             "APN2-Lambda-GB-Second",
+            path=("aws_lambda", "per_gb_second"),
         ),
         Spec(
             "API Gateway",
@@ -163,6 +182,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonApiGateway",
             "APN2-ApiGatewayRequest",
             PER_MILLION,
+            path=("api_gateway", "per_million_requests"),
         ),
         Spec(
             "S3",
@@ -171,6 +191,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonS3",
             "APN2-TimedStorage-ByteHrs",
             attrs={"volumeType": "Standard"},
+            path=("s3", "per_gb_month"),
         ),
         Spec(
             "CloudFront",
@@ -178,6 +199,7 @@ def specs(book: PriceBook) -> list[Spec]:
             book.cloudfront.per_gb_transfer,
             "AmazonCloudFront",
             "AP-DataTransfer-Out-Bytes",
+            path=("cloudfront", "per_gb_transfer"),
         ),
         Spec(
             "CloudFront",
@@ -186,6 +208,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonCloudFront",
             "AP-Requests-Tier2-HTTPS",
             PER_MILLION,
+            path=("cloudfront", "per_million_requests"),
         ),
         Spec(
             "DynamoDB",
@@ -194,6 +217,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonDynamoDB",
             "APN2-ReadRequestUnits",
             PER_MILLION,
+            path=("dynamodb", "per_million_reads"),
         ),
         Spec(
             "DynamoDB",
@@ -202,6 +226,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonDynamoDB",
             "APN2-WriteRequestUnits",
             PER_MILLION,
+            path=("dynamodb", "per_million_writes"),
         ),
         Spec(
             "DynamoDB",
@@ -210,6 +235,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonDynamoDB",
             "APN2-TimedStorage-ByteHrs",
             attrs={"volumeType": "Amazon DynamoDB - Indexed DataStore"},
+            path=("dynamodb", "per_gb_month"),
         ),
         Spec(
             "RDS",
@@ -218,6 +244,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AmazonRDS",
             "APN2-RDS:GP3-Storage",
             attrs={"databaseEngine": "Any", "deploymentOption": "Single-AZ"},
+            path=("rds", "per_gb_month"),
         ),
         Spec(
             "ALB",
@@ -226,6 +253,7 @@ def specs(book: PriceBook) -> list[Spec]:
             "AWSELB",
             "APN2-LoadBalancerUsage",
             attrs={"operation": "LoadBalancing:Application"},
+            path=("alb", "per_hour"),
         ),
         Spec(
             "ECS Fargate",
@@ -233,6 +261,7 @@ def specs(book: PriceBook) -> list[Spec]:
             book.ecs_fargate.vcpu_hourly,
             "AmazonECS",
             "APN2-Fargate-vCPU-Hours:perCPU",
+            path=("ecs_fargate", "vcpu_hourly"),
         ),
         Spec(
             "ECS Fargate",
@@ -240,6 +269,7 @@ def specs(book: PriceBook) -> list[Spec]:
             book.ecs_fargate.gb_hourly,
             "AmazonECS",
             "APN2-Fargate-GB-Hours",
+            path=("ecs_fargate", "gb_hourly"),
         ),
     ]
     for instance_type, hourly in book.rds.instance_hourly.items():
@@ -251,6 +281,7 @@ def specs(book: PriceBook) -> list[Spec]:
                 "AmazonRDS",
                 f"APN2-InstanceUsage:{instance_type}",
                 attrs={"databaseEngine": "MySQL", "deploymentOption": "Single-AZ"},
+                path=("rds", "instance_hourly", instance_type),
             )
         )
     for instance_type, hourly in book.elasticache.instance_hourly.items():
@@ -262,8 +293,48 @@ def specs(book: PriceBook) -> list[Spec]:
                 "AmazonElastiCache",
                 f"APN2-NodeUsage:{instance_type}",
                 attrs={"cacheEngine": "Redis"},
+                path=("elasticache", "instance_hourly", instance_type),
             )
         )
+    if include_ec2:
+        out += ec2_specs(book)
+    return out
+
+
+def ec2_specs(book: PriceBook) -> list[Spec]:
+    """EC2 인스턴스·NAT Gateway (Price List 서비스 코드 AmazonEC2)."""
+    out = [
+        Spec(
+            "EC2",
+            f"{instance_type} (Linux, 시간당)",
+            hourly,
+            "AmazonEC2",
+            f"APN2-BoxUsage:{instance_type}",
+            attrs=EC2_LINUX_ATTRS,
+            path=("ec2", "instance_hourly", instance_type),
+        )
+        for instance_type, hourly in book.ec2.instance_hourly.items()
+    ]
+    out += [
+        Spec(
+            "NAT Gateway",
+            "게이트웨이 (시간당)",
+            book.nat_gateway.per_hour,
+            "AmazonEC2",
+            "APN2-NatGateway-Hours",
+            attrs={"operation": "NatGateway"},
+            path=("nat_gateway", "per_hour"),
+        ),
+        Spec(
+            "NAT Gateway",
+            "처리 데이터 (GB당)",
+            book.nat_gateway.per_gb_processed,
+            "AmazonEC2",
+            "APN2-NatGateway-Bytes",
+            attrs={"operation": "NatGateway"},
+            path=("nat_gateway", "per_gb_processed"),
+        ),
+    ]
     return out
 
 

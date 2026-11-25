@@ -1,7 +1,7 @@
 {
   "region": "ap-northeast-2",
   "priceDate": "2026-11-20",
-  "source": "서울 리전 온디맨드 단가. EC2·NAT Gateway를 뺀 항목은 AWS 공개 Price List와 대조함(scripts/verify_prices.py, 2026-11-24). 단가 동기화 Lambda(Price List API) 연결 후 prices 테이블로 교체",
+  "source": "서울 리전 온디맨드 단가. 33개 모두 AWS 공개 Price List와 대조함(scripts/verify_prices.py 2026-11-24, EC2·NAT Gateway는 #55 2026-11-25). AWS 배포에서는 단가 동기화 Lambda가 Price List API 값으로 prices 테이블을 채움",
   "exchangeRate": {
     "usdKrw": 1380.0,
     "date": "2026-11-20",

@@ -81,7 +81,7 @@
       "usage": {"instanceType": "t3.small", "instanceCount": 2, "hoursPerMonth": 730},
       "calculatorInput": "EC2 Linux, t3.small 2대, 온디맨드, 월 730시간, 공유 테넌시, EBS 0GB, 데이터 전송 0",
       "excludes": ["EBS 볼륨", "퍼블릭 IPv4 주소", "데이터 전송"],
-      "note": "EC2 단가는 아직 공개 Price List와 대조하지 않았다 (scripts/verify_prices.py 범위 밖)",
+      "note": "EC2 단가는 공개 Price List와 같은 값임을 #55에서 확인 (2026-11-25)",
       "calculator": {"usd": null, "by": null, "date": null}
     },
     {
@@ -100,7 +100,7 @@
       "usage": {"hoursPerMonth": 730, "dataTransferOutGb": 100},
       "calculatorInput": "VPC > NAT Gateway 1개, 월 730시간, 처리 데이터 100GB/월",
       "excludes": ["NAT를 거친 인터넷 전송 요금(데이터 전송)"],
-      "note": "NAT Gateway 단가는 아직 공개 Price List와 대조하지 않았다 (scripts/verify_prices.py 범위 밖)",
+      "note": "NAT Gateway 단가는 공개 Price List와 같은 값임을 #55에서 확인 (2026-11-25)",
       "calculator": {"usd": null, "by": null, "date": null}
     },
     {
