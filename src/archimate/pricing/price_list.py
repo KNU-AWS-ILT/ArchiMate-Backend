@@ -36,6 +36,7 @@ MAX_RESULTS = 100
 MAX_WORKERS = 4  # 동시에 보내는 요청 수. Price List API 호출 한도에 걸리지 않게 작게 둔다
 MAX_CHANGE_RATIO = 3.0  # 스냅샷 대비 3배 넘게 달라지면 단위 실수로 보고 멈춘다
 KST = timezone(timedelta(hours=9))
+PRICE_DECIMALS = 10  # Price List 단가는 소수 10자리까지 나온다 (예: "0.0000166667")
 
 
 class PricingClient(Protocol):
@@ -94,7 +95,10 @@ def query_offer(client: PricingClient, spec: Spec) -> dict[str, Any]:
 
 
 def official_price(client: PricingClient, spec: Spec) -> float:
-    return find_price(query_offer(client, spec), spec.usagetype, **spec.attrs) * spec.scale
+    value = find_price(query_offer(client, spec), spec.usagetype, **spec.attrs) * spec.scale
+    # 건당 단가 × 100만에서 생기는 부동소수 오차(0.2 → 0.19999999999999998)를 없앤다.
+    # 가장 작은 단가(Lambda GB-초 0.0000166667)도 소수 10자리라 값이 바뀌지 않는다
+    return round(value, PRICE_DECIMALS)
 
 
 def check_change(spec: Spec, new: float, max_ratio: float) -> str | None:

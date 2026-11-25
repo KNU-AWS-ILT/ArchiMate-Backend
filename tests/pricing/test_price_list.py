@@ -103,9 +103,17 @@ def _same_prices(a, b) -> bool:
         value = a.model_dump(by_alias=False)
         for key in spec.path:
             value = value[key]
-        if value != pytest.approx(spec.ours, rel=1e-9):
+        if value != spec.ours:  # 근사가 아니라 정확히 같아야 한다 (부동소수 오차 제거, PR #56 리뷰)
             return False
     return True
+
+
+def test_per_million_prices_have_no_float_noise():
+    # Price List는 건당 가격(0.0000002)이라 × 100만 하면 0.19999999999999998이 된다
+    assert 0.0000002 * 1_000_000 != 0.2
+    book = fetch(FakePricingClient.matching_snapshot({"APN2-Request": 0.0000002}))
+    assert book.aws_lambda.per_million_requests == 0.2
+    assert book.dynamodb.per_million_reads == load_price_book().dynamodb.per_million_reads
 
 
 def test_changed_prices_are_applied():
