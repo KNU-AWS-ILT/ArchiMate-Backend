@@ -167,3 +167,33 @@ async def test_cancelled_job_saves_tier_failures(repo, req):
     assert job.status == JobStatus.FAILED
     assert job.error.retryable is True
     assert {f.tier for f in job.failures} == set(Tier)
+
+
+# ── 하루 생성 횟수 (#52) ──
+
+
+async def test_reserve_generation_counts_up_to_limit(repo):
+    assert [await repo.reserve_generation("u1", "2026-11-24", 3) for _ in range(4)] == [
+        True,
+        True,
+        True,
+        False,
+    ]
+    assert await repo.reserve_generation("u2", "2026-11-24", 3) is True  # 사용자별
+    assert await repo.reserve_generation("u1", "2026-11-25", 3) is True  # 날짜별
+
+
+async def test_reserve_generation_is_atomic_under_concurrency(repo):
+    results = await asyncio.gather(
+        *(repo.reserve_generation("u1", "2026-11-24", 5) for _ in range(12))
+    )
+    assert results.count(True) == 5
+
+
+async def test_usage_counter_item_expires_and_is_not_a_job(repo):
+    await repo.reserve_generation("u1", "2026-11-24", 5)
+    item = repo._designs.get_item(Key={"jobId": "usage#u1#2026-11-24"})["Item"]
+    assert int(item["count"]) == 1
+    assert int(item["expiresAt"]) > 0
+    # 작업 조회 경로로 카운터 항목을 읽어도 작업으로 보이지 않는다
+    assert await repo.get_job("usage#u1#2026-11-24") is None

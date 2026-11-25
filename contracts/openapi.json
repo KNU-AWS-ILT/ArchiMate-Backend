@@ -37,7 +37,7 @@
           "designs"
         ],
         "summary": "3안 생성 요청",
-        "description": "인터뷰 답변으로 최소비용·균형·확장형 3안 생성을 시작하고 `jobId`를 바로 돌려준다.\n\n생성은 뒤에서 진행되므로(최대 약 3분) `GET /designs/jobs/{jobId}`로 상태를 조회한다.",
+        "description": "인터뷰 답변으로 최소비용·균형·확장형 3안 생성을 시작하고 `jobId`를 바로 돌려준다.\n\n생성은 뒤에서 진행되므로(최대 약 3분) `GET /designs/jobs/{jobId}`로 상태를 조회한다.\n\n사용자별 하루(한국 시간) 생성 횟수를 넘으면 `429 RATE_LIMITED`(`retryable: false`)다 (기본 5회).",
         "operationId": "createDesign",
         "parameters": [
           {
@@ -102,6 +102,16 @@
           },
           "400": {
             "description": "입력 검증 실패 (`INVALID_REQUEST`). 경로 id 길이 초과 포함",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "요청 과다 (`RATE_LIMITED`). 생성은 하루 횟수 초과, 노드 설명은 AI 호출 한도",
             "content": {
               "application/json": {
                 "schema": {
@@ -358,7 +368,7 @@
             }
           },
           "429": {
-            "description": "요청 과다 (`RATE_LIMITED`)",
+            "description": "요청 과다 (`RATE_LIMITED`). 생성은 하루 횟수 초과, 노드 설명은 AI 호출 한도",
             "content": {
               "application/json": {
                 "schema": {

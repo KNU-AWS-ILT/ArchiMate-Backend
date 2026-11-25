@@ -137,7 +137,7 @@ def test_openapi_documents_error_shape(client):
     spec = client.get("/openapi.json").json()
     post = spec["paths"]["/api/v1/designs"]["post"]
     assert post["operationId"] == "createDesign"
-    assert set(post["responses"]) == {"202", "400", "500"}
+    assert set(post["responses"]) == {"202", "400", "429", "500"}
     assert "HTTPValidationError" not in spec["components"]["schemas"]
     assert client.get("/docs").status_code == 200
 

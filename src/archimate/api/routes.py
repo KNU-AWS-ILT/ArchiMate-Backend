@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Path, status
 
 from archimate.api import service
-from archimate.api.deps import Repo, Runner, UserId
+from archimate.api.deps import DailyLimit, Repo, Runner, UserId
 from archimate.api.errors import error_responses
 from archimate.schemas import (
     CreateDesignRequest,
@@ -68,19 +68,21 @@ async def health() -> dict[str, str]:
     summary="3안 생성 요청",
     description=(
         "인터뷰 답변으로 최소비용·균형·확장형 3안 생성을 시작하고 `jobId`를 바로 돌려준다.\n\n"
-        "생성은 뒤에서 진행되므로(최대 약 3분) `GET /designs/jobs/{jobId}`로 상태를 조회한다."
+        "생성은 뒤에서 진행되므로(최대 약 3분) `GET /designs/jobs/{jobId}`로 상태를 조회한다.\n\n"
+        "사용자별 하루(한국 시간) 생성 횟수를 넘으면 `429 RATE_LIMITED`(`retryable: false`)다 (기본 5회)."
     ),
     status_code=status.HTTP_202_ACCEPTED,
     response_model=DesignJobAccepted,
-    responses=error_responses(400, 500),
+    responses=error_responses(400, 429, 500),
 )
 async def create_design(
     body: Annotated[CreateDesignRequest, Body(openapi_examples=CREATE_DESIGN_EXAMPLES)],
     repo: Repo,
     runner: Runner,
     user_id: UserId,
+    daily_limit: DailyLimit,
 ) -> DesignJobAccepted:
-    job_id = await service.create_job(repo, user_id, body.answers)
+    job_id = await service.create_job(repo, user_id, body.answers, daily_limit=daily_limit)
     runner.submit(job_id)
     return DesignJobAccepted(job_id=job_id)
 
