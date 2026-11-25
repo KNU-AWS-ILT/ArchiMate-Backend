@@ -1,0 +1,130 @@
+"""LLM 모듈 예외. API 계층은 이 예외만 잡아 ErrorResponse(schemas.api)로 바꾸면 된다.
+
+권장 매핑 (Issue #7 합의 필요). code는 schemas.api.ErrorCode 값.
+    예외                    code                       retryable  노드 설명(동기) HTTP
+    LLMConfigError        → INTERNAL_ERROR             false      500
+    LLMRateLimitError     → RATE_LIMITED               true       429
+    LLMTimeoutError       → LLM_TIMEOUT                true       504
+    LLMOutputError        → DESIGN_GENERATION_FAILED   true       502 (노드 설명은 EXPLANATION_FAILED)
+    LLMProviderError      → DESIGN_GENERATION_FAILED   true       502 (노드 설명은 EXPLANATION_FAILED)
+    AllTiersFailedError   → common_cause가 있으면 그 예외의 매핑, 없으면 DESIGN_GENERATION_FAILED
+    TierInternalError     → INTERNAL_ERROR             true       500 (안 하나의 실패로만 쓰이고, 세 안이 모두 이 원인이면 API가 이 코드로 응답)
+
+3안 생성은 비동기 작업이라 HTTP 에러가 아니라 DesignJob.status=failed + error로 전달한다.
+  - DesignJob.failures = AllTiersFailedError.failures  (실제로 시도한 안만, 1안 모드면 1개)
+  - DesignJob.error    = 위 표로 바꾼 AllTiersFailedError.common_cause or AllTiersFailedError
+아래 각 클래스의 code는 로그·TierFailure.reason용 내부 코드다.
+"""
+
+from collections.abc import Sequence
+
+from archimate.schemas import TierFailure
+
+
+class LLMError(Exception):
+    """LLM 모듈의 모든 예외의 부모."""
+
+    code = "LLM_ERROR"
+
+
+class LLMConfigError(LLMError):
+    """API 키 누락, 잘못된 제공자 이름 등."""
+
+    code = "LLM_CONFIG_ERROR"
+
+
+class LLMProviderError(LLMError):
+    """제공자 API 호출 실패(네트워크, 5xx, 권한 등).
+
+    transient: 잠시 뒤 다시 하면 될 수 있는 일시 오류(429, 5xx, 네트워크 끊김).
+               파이프라인이 지수 백오프로 재시도한다 (#23). 4xx 요청 오류는 False.
+    retry_after_s: 제공자가 알려 준 대기 시간(Retry-After). 없으면 None.
+    overloaded: 모델이 과부하(503, 529)라 응답하지 못함. 다른 모델로 바꾸면 될 수 있어서
+                재시도 후에도 계속되면 대체 모델로 넘어간다 (네트워크 끊김·500과 구분).
+    """
+
+    code = "LLM_PROVIDER_ERROR"
+    default_transient = False
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        transient: bool | None = None,
+        retry_after_s: float | None = None,
+        overloaded: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.transient = self.default_transient if transient is None else transient
+        self.retry_after_s = retry_after_s
+        self.overloaded = overloaded
+
+
+class LLMRateLimitError(LLMProviderError):
+    """요청 한도 초과(무료 티어에서 자주 발생)."""
+
+    code = "LLM_RATE_LIMITED"
+    default_transient = True
+
+
+class LLMTimeoutError(LLMProviderError):
+    code = "LLM_TIMEOUT"
+
+
+class LLMOutputError(LLMError):
+    """응답이 잘렸거나, 거절됐거나, 재시도 후에도 스키마/규칙 검증을 통과하지 못함."""
+
+    code = "LLM_INVALID_OUTPUT"
+
+
+class TierInternalError(LLMError):
+    """LLM 호출 밖의 예상 못 한 오류로 안 하나가 실패 (코드 버그, 감싸지 않은 SDK 예외 등)."""
+
+    code = "TIER_INTERNAL_ERROR"
+
+
+class TierCallbackError(TierInternalError):
+    """on_tier_done(비용 계산·저장)에서 오류가 나 안 하나가 실패."""
+
+    code = "TIER_CALLBACK_FAILED"
+
+
+class AllTiersFailedError(LLMError):
+    """시도한 안이 모두 생성에 실패.
+
+    failures: 안별 실패 (DesignJob.failures에 그대로 쓴다)
+    causes:   failures와 같은 순서의 원래 예외
+    """
+
+    code = "DESIGN_GENERATION_FAILED"
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        failures: Sequence[TierFailure] = (),
+        causes: Sequence[LLMError] = (),
+    ) -> None:
+        self.failures = list(failures)
+        self.causes = list(causes)
+        if message is None:
+            message = "모든 안 생성 실패: " + ", ".join(
+                f"{f.tier.value}={f.reason}" for f in self.failures
+            )
+        super().__init__(message)
+
+    @property
+    def common_cause(self) -> LLMError | None:
+        """모든 안이 같은 종류의 오류로 실패했으면 그 예외 (예: 셋 다 한도 초과 → LLMRateLimitError).
+
+        API 계층은 이 값으로 error.code를 정한다. 원인이 섞여 있으면 None.
+        서버 쪽 원인(TierInternalError, TierCallbackError)은 타입이 달라도 같은 종류로 본다.
+        예: 두 안은 저장 실패, 한 안은 예상 못 한 오류 → INTERNAL_ERROR (#38 리뷰)
+        """
+        if not self.causes:
+            return None
+        if len({type(c) for c in self.causes}) == 1:
+            return self.causes[0]
+        if all(isinstance(c, TierInternalError) for c in self.causes):
+            return next((c for c in self.causes if type(c) is TierInternalError), self.causes[0])
+        return None

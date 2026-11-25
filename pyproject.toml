@@ -10,14 +10,26 @@ dependencies = [
     # LLM 제공자 SDK
     "anthropic[bedrock]>=2.10",   # Bedrock(Claude) — 최종 배포용
     "google-genai>=3.5",          # Gemini 무료 티어 — 개발용
+    # API 서버 (로컬·Railway). Swagger UI는 /docs
+    "fastapi>=0.165",
+    "uvicorn[standard]>=0.54",
 ]
 
 [project.optional-dependencies]
+# AWS(Lambda) 배포용: pip install -e ".[aws]"
+aws = [
+    "boto3>=1.35",   # DynamoDB, Lambda 자기 호출
+    "mangum>=0.19",  # API Gateway(Lambda 프록시) ↔ FastAPI 어댑터
+]
 # 개발 도구: pip install -e ".[dev]"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
+    "httpx>=0.28",  # FastAPI TestClient
+    "moto[dynamodb]>=5",  # DynamoDB 저장소 테스트 (AWS 호출 없음)
+    "boto3>=1.35",
+    "mangum>=0.19",
 ]
 
 [build-system]
@@ -30,6 +42,7 @@ packages = ["src/archimate"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"  # pytest-asyncio 경고 제거 (CI #37)
 pythonpath = ["src"]
 
 [tool.ruff]

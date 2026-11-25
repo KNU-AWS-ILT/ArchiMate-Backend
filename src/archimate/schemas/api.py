@@ -12,7 +12,9 @@
 ⚠️ 월 비용(MonthlyCost)과 상태 값의 세부는 백엔드(API·비용) 담당이 확정한다.
 """
 
+from datetime import date
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field
 
@@ -37,17 +39,31 @@ class JobStatus(StrEnum):
 
 
 class CostItem(CamelModel):
+    """노드 1개의 월 비용. 계산 대상이 아니거나 사용량이 없으면 amount·amountUsd가 null."""
+
     node_id: str
-    amount: float
-    note: str | None = None
+    amount: int | None = Field(description="월 비용(원). 원 단위 반올림")
+    amount_usd: float | None = Field(description="월 비용(USD). 소수 둘째 자리 반올림")
+    note: str | None = Field(default=None, description="계산 근거 또는 계산하지 못한 이유")
 
 
 class MonthlyCost(CamelModel):
-    total: float
-    currency: str = Field(description="USD 또는 KRW (API·비용 담당 확정)")
-    free_tier: bool
-    free_tier_note: str | None = None
-    items: list[CostItem]
+    """1안의 월 비용 (Issue #10 C안). 프론트는 값을 그대로 표시만 한다.
+
+    - total = items[].amount 합 (null 제외) — 백엔드가 보장
+    - 금액은 '항상 무료' 한도를 뺀 실제 청구 예상액. 가입 크레딧은 반영하지 않는다
+    """
+
+    currency: Literal["KRW"] = "KRW"
+    total: int = Field(description="월 합계(원)")
+    total_usd: float = Field(description="월 합계(USD)")
+    exchange_rate: float = Field(description="적용 환율 (1 USD당 원)")
+    exchange_rate_date: date = Field(description="환율 기준일")
+    price_date: date = Field(description="AWS 단가 기준일")
+    free_tier: bool = Field(description="무료 한도 안이라 월 0원인지")
+    free_tier_note: str | None = Field(default=None, description="무료 한도 안내 문구")
+    over_budget: bool = Field(description="total이 인터뷰 월 예산(monthlyBudget)을 넘는지")
+    items: list[CostItem] = Field(description="사용자 노드를 뺀 모든 노드")
 
 
 class DesignResult(Design):

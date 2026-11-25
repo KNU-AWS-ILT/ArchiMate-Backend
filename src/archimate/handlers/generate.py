@@ -1,12 +1,43 @@
-"""설계 생성 Lambda [백엔드(AI 생성)] — 고도화 아키텍처 문서 4장 ④.
+"""설계 생성 Lambda — `archimate.handlers.generate.handler`.
 
-TODO(API 명세 확정 후 구현):
-    ④-1 접수  POST /designs
-        CreateDesignRequest 검증 → designs 테이블에 jobId 저장(queued)
-        → 자기 자신을 비동기 호출 → 202 DesignJobAccepted 즉시 응답 (API Gateway 29초 제한 회피)
-    ④-2 생성  (비동기 호출로 실행)
-        archimate.llm.generate_designs(on_tier_done=...)로 3안 병렬 생성
-        → 안이 끝날 때마다 월 비용 계산(archimate.pricing) → 저장 (끝난 안부터 조회 가능)
-    ④-3 조회  GET /designs/jobs/{jobId}, GET /designs/{designId}/guide
-        userId(Cognito 토큰) + jobId로 저장소 조회 (조회 로직은 API·비용 담당 storage 사용)
+API Gateway(Lambda 프록시) 이벤트는 Mangum이 FastAPI 앱으로 넘기고, 담당 경로는 다음과 같다.
+    POST /api/v1/designs                          접수 → jobId 저장 → 자기 자신을 비동기 호출 → 202
+    GET  /api/v1/designs/jobs/{jobId}             상태 조회
+    GET  /api/v1/designs/{designId}/guide         운영 절차 조회
+
+자기 자신의 비동기 호출 이벤트(`{"action": "run_job", "jobId": ...}`)는 API Gateway를 거치지 않고
+3안 생성을 직접 실행한다. 로직은 api/service.py에 있고 여기서는 이벤트 종류만 가른다.
 """
+
+import os
+from functools import lru_cache
+from typing import Any
+
+from mangum import Mangum
+
+from archimate.api import service
+from archimate.api.runner import RUN_JOB_ACTION, LambdaJobRunner
+from archimate.handlers._app import (
+    build_app,
+    get_price_source,
+    get_repo,
+    run_async,
+    use_event_loop,
+)
+
+
+@lru_cache
+def _asgi() -> Mangum:
+    runner = LambdaJobRunner(os.environ["AWS_LAMBDA_FUNCTION_NAME"])
+    # lifespan: Lambda 환경에서는 시작·종료 이벤트가 없다
+    return Mangum(build_app(runner), lifespan="off")
+
+
+def handler(event: dict[str, Any], context: Any) -> Any:
+    if event.get("action") == RUN_JOB_ACTION:
+        run_async(
+            service.run_design_job(get_repo(), event["jobId"], price_source=get_price_source())
+        )
+        return {"ok": True}
+    use_event_loop()
+    return _asgi()(event, context)

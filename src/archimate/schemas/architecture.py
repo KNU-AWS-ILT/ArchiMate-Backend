@@ -44,7 +44,7 @@ class Usage(CamelModel):
 
     monthly_requests: int | None = Field(default=None, description="월 요청 수")
     avg_duration_ms: int | None = Field(default=None, description="Lambda 평균 실행 시간(ms)")
-    memory_mb: int | None = Field(default=None, description="Lambda 메모리(MB)")
+    memory_mb: int | None = Field(default=None, description="Lambda·ECS Fargate 태스크 메모리(MB)")
     storage_gb: float | None = Field(default=None, description="저장 용량(GB)")
     data_transfer_out_gb: float | None = Field(default=None, description="월 외부 전송량(GB)")
     monthly_reads: int | None = Field(default=None, description="DynamoDB 월 읽기 요청 수")
@@ -53,6 +53,9 @@ class Usage(CamelModel):
     instance_count: int | None = Field(default=None, description="인스턴스/태스크 수")
     hours_per_month: int | None = Field(default=None, description="월 가동 시간(상시 730)")
     multi_az: bool | None = Field(default=None, description="RDS Multi-AZ 여부")
+    vcpu: float | None = Field(
+        default=None, description="ECS Fargate 태스크 vCPU (0.25, 0.5, 1, 2, 4 중 하나)"
+    )
 
 
 # 비용 계산에 반드시 필요한 Usage 필드 (파이썬 속성명. LLM 출력 검증에 사용)
@@ -71,6 +74,11 @@ REQUIRED_USAGE_FIELDS: dict[AwsService, tuple[str, ...]] = {
     ),
     AwsService.EC2: ("instance_type", "instance_count", "hours_per_month"),
     AwsService.ALB: ("hours_per_month",),
+    # NAT Gateway의 instanceCount는 선택 (없으면 1개로 계산)
+    AwsService.NAT_GATEWAY: ("hours_per_month", "data_transfer_out_gb"),
+    AwsService.ELASTICACHE: ("instance_type", "instance_count", "hours_per_month"),
+    # Fargate 요금 = (vCPU × vCPU-시간 단가 + 메모리 GB × GB-시간 단가) × 시간 × 태스크 수 (#35)
+    AwsService.ECS_FARGATE: ("vcpu", "memory_mb", "instance_count", "hours_per_month"),
 }
 
 
@@ -137,9 +145,29 @@ class Design(DesignDraft):
     )
 
 
+# TierFailure.reason에 올 수 있는 값 (#20 리뷰). INTERNAL_ERROR는 API 계층(작업 취소, 200초 넘게
+# 끝나지 않은 작업)이 쓰고, 나머지는 LLM 계층 예외(llm/errors.py)의 code다.
+# 프론트는 안별 실패에는 공통 문구를 쓰고, 전체 실패만 DesignJob.error.code로 구분한다.
+TIER_FAILURE_REASONS: dict[str, str] = {
+    "LLM_RATE_LIMITED": "AI 호출 한도 초과 (재시도 후에도)",
+    "LLM_TIMEOUT": "AI 응답 시간 초과 또는 전체 기한 초과",
+    "LLM_INVALID_OUTPUT": "AI 출력이 재시도 후에도 검증을 통과하지 못함",
+    "LLM_PROVIDER_ERROR": "AI 제공자 오류 (5xx, 네트워크 등)",
+    "LLM_CONFIG_ERROR": "AI 설정 오류 (API 키, 모델 권한 등)",
+    "TIER_INTERNAL_ERROR": "AI 호출 밖의 예상 못 한 오류",
+    "TIER_CALLBACK_FAILED": "비용 계산·저장 중 오류",
+    "INTERNAL_ERROR": "작업이 중단됨 (서버 재시작, 시간 초과로 강제 종료)",
+    "DESIGN_GENERATION_FAILED": "원인 정보 없이 전체 실패",
+}
+
+
 class TierFailure(CamelModel):
     tier: Tier
-    reason: str
+    reason: str = Field(
+        description="실패 이유 코드 (내부 진단용). 값: "
+        + ", ".join(f"{k}({v})" for k, v in TIER_FAILURE_REASONS.items())
+        + ". 프론트는 이 값으로 문구를 나누지 않고 안별 공통 문구를 쓴다"
+    )
 
 
 class DesignSet(CamelModel):

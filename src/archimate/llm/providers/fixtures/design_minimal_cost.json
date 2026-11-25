@@ -1,0 +1,144 @@
+{
+  "title": "서버리스 최소비용 구성",
+  "summary": "정적 화면은 S3와 CloudFront로, API는 API Gateway와 Lambda로, 데이터는 DynamoDB에 저장합니다. 사용한 만큼만 비용이 나와 동시 사용자 100명 수준에서는 대부분 Free Tier 안에서 운영됩니다.",
+  "difficulty": {
+    "level": 1,
+    "reason": "서버를 직접 관리하지 않아 콘솔에서 몇 번의 설정만으로 운영할 수 있어요."
+  },
+  "architecture": {
+    "nodes": [
+      {
+        "id": "users",
+        "serviceType": "users",
+        "label": "사용자",
+        "groupId": null,
+        "role": "브라우저로 모집 공고를 보고 지원서를 내는 사람",
+        "reason": "모든 요청이 시작되는 지점이에요.",
+        "usage": null
+      },
+      {
+        "id": "cdn",
+        "serviceType": "cloudfront",
+        "label": "CDN",
+        "groupId": null,
+        "role": "웹 화면을 전 세계에 빠르게 전달하고 HTTPS를 제공",
+        "reason": "정적 파일을 캐시해 S3 요청과 전송 비용을 줄이고, 무료 HTTPS 인증서를 붙일 수 있습니다.",
+        "usage": {
+          "monthlyRequests": 300000,
+          "dataTransferOutGb": 5
+        }
+      },
+      {
+        "id": "web_bucket",
+        "serviceType": "s3",
+        "label": "웹 화면 저장소",
+        "groupId": "region_seoul",
+        "role": "빌드한 React 정적 파일 보관",
+        "reason": "서버 없이 정적 파일을 저렴하게 보관할 수 있어 바이브 코딩으로 만든 프론트를 그대로 올리기 좋습니다.",
+        "usage": {
+          "storageGb": 1
+        }
+      },
+      {
+        "id": "api_gw",
+        "serviceType": "api_gateway",
+        "label": "API 입구",
+        "groupId": "region_seoul",
+        "role": "브라우저의 API 요청을 받아 Lambda로 전달",
+        "reason": "요청 수만큼만 과금되고 인증·요청 제한 기능이 기본 제공됩니다.",
+        "usage": {
+          "monthlyRequests": 200000
+        }
+      },
+      {
+        "id": "api_lambda",
+        "serviceType": "lambda",
+        "label": "API 처리 함수",
+        "groupId": "region_seoul",
+        "role": "지원서 제출·조회 등 비즈니스 로직 실행",
+        "reason": "요청이 없을 때는 비용이 0원이고 서버 패치·확장을 AWS가 대신합니다.",
+        "usage": {
+          "monthlyRequests": 200000,
+          "avgDurationMs": 200,
+          "memoryMb": 256
+        }
+      },
+      {
+        "id": "app_db",
+        "serviceType": "dynamodb",
+        "label": "지원서 DB",
+        "groupId": "region_seoul",
+        "role": "동아리 공고와 지원서 저장",
+        "reason": "온디맨드 모드는 읽기·쓰기만큼만 과금되고 서버 관리가 없어 AWS 경험이 없는 팀에 적합합니다.",
+        "usage": {
+          "storageGb": 1,
+          "monthlyReads": 500000,
+          "monthlyWrites": 50000
+        }
+      },
+      {
+        "id": "logs",
+        "serviceType": "cloudwatch",
+        "label": "로그·알람",
+        "groupId": "region_seoul",
+        "role": "Lambda 로그 수집과 오류 알람",
+        "reason": "Lambda 로그가 자동으로 쌓여 장애 원인을 바로 찾을 수 있습니다.",
+        "usage": null
+      }
+    ],
+    "edges": [
+      {
+        "from": "users",
+        "to": "cdn",
+        "label": "웹 접속 (HTTPS)"
+      },
+      {
+        "from": "cdn",
+        "to": "web_bucket",
+        "label": "정적 파일"
+      },
+      {
+        "from": "users",
+        "to": "api_gw",
+        "label": "API 요청"
+      },
+      {
+        "from": "api_gw",
+        "to": "api_lambda",
+        "label": null
+      },
+      {
+        "from": "api_lambda",
+        "to": "app_db",
+        "label": "지원서 읽기/쓰기"
+      },
+      {
+        "from": "api_lambda",
+        "to": "logs",
+        "label": "로그"
+      }
+    ],
+    "groups": [
+      {
+        "id": "region_seoul",
+        "kind": "region",
+        "label": "서울 리전 (ap-northeast-2)",
+        "parentId": null
+      }
+    ]
+  },
+  "pros": [
+    "트래픽이 적을 때 비용이 거의 0원",
+    "서버 관리가 필요 없음",
+    "모집 기간 트래픽 급증에 자동 대응"
+  ],
+  "cons": [
+    "DynamoDB는 SQL처럼 자유로운 조회가 어려움",
+    "Lambda 콜드 스타트로 첫 응답이 느릴 수 있음"
+  ],
+  "budgetNote": "월 5만 원 예산보다 훨씬 낮은 수준으로 운영할 수 있고 대부분 Free Tier 범위입니다.",
+  "scalingPath": [
+    "사용자 1만 명: DynamoDB 키 설계 점검, CloudFront 캐시 정책 조정",
+    "사용자 10만 명: Lambda 동시 실행 한도 상향 요청, 읽기 많은 데이터에 캐시 추가"
+  ]
+}
