@@ -3,8 +3,9 @@
 가져오는 쪽(PriceFetcher)과 쓰는 쪽(PriceStore)을 나눠서, AWS Price List API 연동을 나중에
 PriceFetcher 구현만 추가해서 붙일 수 있게 한다. 가져오기가 실패하면 쓰지 않아서 이전 단가가 남는다.
 
-⚠ 지금 있는 PriceFetcher는 패키지 스냅샷뿐이다. AWS Price List API(us-east-1)로 실제 단가를 가져오는
-구현은 없다. 그래서 이 동기화는 테이블에 스냅샷 값을 채우는 일(시딩)만 하고, 단가는 스냅샷이 바뀔 때만 바뀐다.
+PriceFetcher 구현:
+- `PriceListFetcher` (pricing/price_list.py, #55): AWS Price List Query API로 실제 단가를 가져온다. Lambda 기본값
+- `SnapshotPriceFetcher`: 패키지 스냅샷을 그대로 돌려준다 (로컬·테스트, `PRICE_FETCHER=snapshot`)
 """
 
 import logging

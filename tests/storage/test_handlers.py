@@ -133,7 +133,29 @@ def test_generate_falls_back_to_snapshot_when_table_is_empty(lambda_client):
     assert {d["monthlyCost"]["exchangeRate"] for d in designs} == {rate}
 
 
-def test_sync_prices_handler_fills_the_table(lambda_client, price_store):
+def test_sync_prices_handler_fills_the_table(lambda_client, price_store, monkeypatch):
+    monkeypatch.setenv("PRICE_FETCHER", "snapshot")
     result = sync_prices.handler({}, None)
     assert result["ok"] is True and result["region"] == "ap-northeast-2"
     assert run_async(price_store.get("ap-northeast-2")) == load_price_book()
+
+
+def test_sync_prices_handler_uses_price_list_by_default(lambda_client, price_store, monkeypatch):
+    """기본값은 Price List API. Fetcher 자체는 tests/pricing/test_price_list.py에서 확인한다."""
+    fetched = load_price_book().model_copy(update={"source": "AWS Price List API (테스트)"})
+
+    class StubFetcher:
+        async def fetch(self, region: str):
+            return fetched
+
+    monkeypatch.delenv("PRICE_FETCHER", raising=False)
+    monkeypatch.setattr(sync_prices, "PriceListFetcher", StubFetcher)
+    result = sync_prices.handler({}, None)
+    assert result["source"] == "AWS Price List API (테스트)"
+    assert run_async(price_store.get("ap-northeast-2")) == fetched
+
+
+def test_sync_prices_handler_rejects_unknown_fetcher(monkeypatch):
+    monkeypatch.setenv("PRICE_FETCHER", "nope")
+    with pytest.raises(ValueError, match="PRICE_FETCHER"):
+        sync_prices.get_fetcher()
