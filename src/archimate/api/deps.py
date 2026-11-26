@@ -43,6 +43,11 @@ def get_runner(request: Request) -> JobRunner:
     return request.app.state.runner
 
 
+def get_daily_limit(request: Request) -> int:
+    return getattr(request.app.state, "daily_limit", 0)
+
+
 UserId = Annotated[str, Depends(get_user_id)]
 Repo = Annotated[DesignRepository, Depends(get_repo)]
 Runner = Annotated[JobRunner, Depends(get_runner)]
+DailyLimit = Annotated[int, Depends(get_daily_limit)]

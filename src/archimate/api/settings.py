@@ -21,6 +21,14 @@ class ApiSettings(BaseSettings):
     cors_origins: list[str] = Field(
         default=["http://localhost:3000"], description="브라우저 호출을 허용할 프론트 주소"
     )
+    daily_generation_limit: int = Field(
+        default=5,
+        ge=0,
+        description=(
+            "사용자별 하루(한국 시간) 3안 생성 횟수. 0이면 제한 없음. "
+            "LLM_PROVIDER=mock(고정 응답)에서는 비용이 없어 적용하지 않는다 (#52)"
+        ),
+    )
     mock_delay_s: float = Field(
         default=0.0,
         ge=0,

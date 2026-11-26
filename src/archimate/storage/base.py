@@ -43,6 +43,13 @@ class DesignRepository(Protocol):
         """queued인 job만 running으로 바꾸고 True. 이미 시작됐으면 False (같은 이벤트가 두 번 와도 한 번만 실행)."""
         ...
 
+    async def reserve_generation(self, user_id: str, day: str, limit: int) -> bool:
+        """그날(day, 예: "2026-11-24") 이 사용자의 생성 횟수를 1 늘리고 True. 이미 limit회면 늘리지 않고 False.
+
+        동시에 여러 번 불려도 limit을 넘지 않아야 한다 (#52).
+        """
+        ...
+
     async def add_design(self, job_id: str, design: DesignResult) -> None:
         """안 하나가 끝날 때마다 호출. 프론트는 끝난 안부터 조회한다."""
         ...

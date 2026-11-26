@@ -90,6 +90,22 @@ def test_every_snapshot_price_has_a_spec():
     assert len(items) == len(specs(book)) == 13 + instance_items
 
 
+def test_price_list_specs_cover_every_price_with_a_unique_path():
+    """Price List API로 바꿀 단가 위치(path)는 EC2·NAT Gateway까지 빠짐없고 겹치지 않는다 (#55)."""
+    book = load_price_book()
+    all_specs = specs(book, include_ec2=True)
+    paths = [s.path for s in all_specs]
+    assert len(set(paths)) == len(paths) and all(paths)
+    data = book.model_dump(by_alias=False)
+    for spec in all_specs:
+        value = data
+        for key in spec.path:
+            value = value[key]
+        assert value == spec.ours
+    extra = len(book.ec2.instance_hourly) + 2  # EC2 인스턴스 + NAT Gateway 2개
+    assert len(all_specs) == len(specs(book)) + extra == 33
+
+
 def test_report_lists_counts_and_unchecked_items():
     report = render_report(
         [Check("Lambda", "요청", 0.2, 0.2), Check("S3", "저장", 0.03, 0.025)],

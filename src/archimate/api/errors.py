@@ -187,7 +187,7 @@ def error_responses(*codes: int) -> dict[int | str, dict]:
         400: "입력 검증 실패 (`INVALID_REQUEST`). 경로 id 길이 초과 포함",
         401: "로그인 필요 (`UNAUTHORIZED`)",
         404: "job·설계·노드 없음 (`NOT_FOUND`)",
-        429: "요청 과다 (`RATE_LIMITED`)",
+        429: "요청 과다 (`RATE_LIMITED`). 생성은 하루 횟수 초과, 노드 설명은 AI 호출 한도",
         500: "서버 오류 (`INTERNAL_ERROR`)",
         502: "AI 생성 실패 (`EXPLANATION_FAILED` 등)",
         504: "AI 응답 시간 초과 (`LLM_TIMEOUT`)",

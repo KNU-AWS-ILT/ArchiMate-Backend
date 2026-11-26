@@ -69,7 +69,8 @@
 > - 화면 표시는 KRW(원 단위), USD 원금액·환율·기준일을 함께 제공. `total`은 `items[].amount` 합과 항상 같습니다.
 > - 금액은 '항상 무료' 한도(Lambda·CloudFront·DynamoDB)를 뺀 값이고, 가입 크레딧은 반영하지 않습니다.
 > - 계산 대상이 아닌 서비스·사용량이 없는 노드는 `amount: null` + `note`. 예산 초과는 `overBudget`.
-> - 개발 중 단가는 `src/archimate/pricing/snapshots/`의 서울 리전 스냅샷(근사치)을 씁니다.
+> - 개발 중(로컬·Railway) 단가는 `src/archimate/pricing/snapshots/`의 서울 리전 스냅샷을 씁니다. 스냅샷의 단가 33개는 AWS 공개 Price List와 같은 값입니다(2026-11-25 확인).
+> - AWS 배포에서는 단가 동기화 Lambda가 매일 Price List Query API(`pricing:GetProducts`)로 단가를 받아 prices 테이블에 씁니다(#55). 하나라도 못 받거나 스냅샷과 3배 넘게 다르면 쓰지 않고 전날 단가를 그대로 둡니다. 무료 한도 수량과 환율은 스냅샷 값입니다.
 
 ### 공통: 에러 응답
 
@@ -294,8 +295,10 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 | `DESIGNS_TABLE` | (AWS Lambda) 설계 결과 테이블 이름. 설계 생성·노드 설명 Lambda |
 | `EXPLANATIONS_TABLE` | (AWS Lambda) 노드 설명 캐시 테이블 이름. 노드 설명 Lambda |
 | `PRICES_TABLE` | (AWS Lambda) 단가 테이블 이름. 단가 동기화 Lambda가 쓰고 설계 생성 Lambda가 읽음. 없으면 패키지 스냅샷 단가 |
+| `PRICE_FETCHER` | (단가 동기화 Lambda) `price_list`(기본, AWS Price List API, IAM `pricing:GetProducts` 필요) / `snapshot`(패키지 스냅샷을 그대로 채움) (#55) |
 | `API_CORS_ORIGINS` | 브라우저 호출을 허용할 프론트 주소 JSON 배열 (기본 `["http://localhost:3000"]`) |
 | `MOCK_DELAY_S` | 모킹 지연(초, 기본 0). 예: `2`면 queued 2초 → running → 안이 2초 간격으로 하나씩 채워짐. `LLM_PROVIDER=mock`일 때만 적용 |
+| `API_DAILY_GENERATION_LIMIT` | 사용자별 하루 설계 생성 횟수 (기본 `5`, `0`이면 제한 없음). 한국 시간 자정에 초기화. 넘으면 `429 RATE_LIMITED`. `LLM_PROVIDER=mock`일 때는 적용하지 않음 (#52) |
 
 ---
 

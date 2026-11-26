@@ -9,7 +9,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 from archimate.api.errors import ApiError, llm_error_to_api, not_found, to_error_response
 from archimate.llm import AllTiersFailedError, LLMError, explain_node
@@ -36,6 +36,9 @@ from archimate.storage import DesignRepository, JobRecord
 logger = logging.getLogger(__name__)
 
 GenerateFn = Callable[..., Awaitable[object]]
+
+# 하루 생성 횟수는 한국 시간 자정에 초기화한다 (#52). 한국은 서머타임이 없어 고정 오프셋으로 충분하다
+KST = timezone(timedelta(hours=9), "KST")
 
 # 생성 Lambda 제한 시간(180초)보다 길다. 이 시간이 지나도 끝나지 않은 job은 Lambda가 강제 종료된 것으로 본다.
 JOB_STALE_AFTER_S = 200
@@ -99,7 +102,33 @@ async def _get_owned_design(
 # ── ④-1 접수 / ④-3 조회 ────────────────────────────────
 
 
-async def create_job(repo: DesignRepository, user_id: str, req: Requirements) -> str:
+def generation_day(now: datetime | None = None) -> str:
+    """하루 생성 횟수를 세는 날짜 (한국 시간 기준, 예: "2026-11-24")."""
+    return (now or datetime.now(UTC)).astimezone(KST).date().isoformat()
+
+
+async def create_job(
+    repo: DesignRepository,
+    user_id: str,
+    req: Requirements,
+    *,
+    daily_limit: int = 0,
+    now: datetime | None = None,
+) -> str:
+    """daily_limit이 0보다 크면 그날 생성 횟수를 먼저 확인한다. 넘으면 429 (#52).
+
+    접수할 때 센다. 생성이 실패해도 LLM 비용은 이미 들기 때문이다.
+    """
+    if daily_limit > 0 and not await repo.reserve_generation(
+        user_id, generation_day(now), daily_limit
+    ):
+        logger.info("job.daily_limit user_id=%s limit=%d", user_id, daily_limit)
+        raise ApiError(
+            429,
+            ErrorCode.RATE_LIMITED,
+            f"오늘 만들 수 있는 횟수({daily_limit}회)를 모두 썼어요. 내일 다시 시도해 주세요.",
+            retryable=False,
+        )
     job_id = new_job_id()
     await repo.create_job(JobRecord(job_id=job_id, user_id=user_id, requirements=req))
     return job_id
