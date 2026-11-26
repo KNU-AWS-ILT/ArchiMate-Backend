@@ -184,6 +184,40 @@ def test_factory_builds_converse_provider_with_default_models(monkeypatch):
     explain = build_provider(settings, model=settings.resolved_explain_model)
 
     assert isinstance(design, ConverseProvider)
-    assert design.model == "qwen.qwen3-235b-a22b-2507-v1:0"
+    assert design.model == "openai.gpt-oss-120b-1:0"
     assert explain.model == "amazon.nova-pro-v1:0"
     assert design._client.meta.region_name == "ap-southeast-2"
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("amazon.nova-pro-v1:0", 10_000),  # #15 시험: 16000이면 ValidationException
+        ("amazon.nova-lite-v1:0", 10_000),
+        ("openai.gpt-oss-120b-1:0", 16_000),
+    ],
+)
+async def test_max_tokens_is_lowered_to_the_model_limit(model, expected):
+    client = FakeClient(tool_response(EXPLANATION))
+    provider = ConverseProvider(
+        model=model,
+        aws_region="ap-southeast-2",
+        max_output_tokens=16_000,
+        timeout_s=30,
+        client=client,
+    )
+    await call(provider)
+    assert client.requests[0]["inferenceConfig"] == {"maxTokens": expected}
+
+
+async def test_smaller_requested_max_tokens_is_kept():
+    client = FakeClient(tool_response(EXPLANATION))
+    provider = ConverseProvider(
+        model="amazon.nova-pro-v1:0",
+        aws_region="ap-southeast-2",
+        max_output_tokens=8_000,
+        timeout_s=30,
+        client=client,
+    )
+    await call(provider)
+    assert client.requests[0]["inferenceConfig"] == {"maxTokens": 8_000}

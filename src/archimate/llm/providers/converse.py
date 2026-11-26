@@ -54,6 +54,18 @@ _TRANSIENT_CODES = {
 _OVERLOADED_CODES = {"ServiceUnavailableException"}
 _AUTH_CODES = {"AccessDeniedException", "UnrecognizedClientException", "ExpiredTokenException"}
 
+# 모델별 최대 출력 토큰. LLM_MAX_OUTPUT_TOKENS(기본 16000)가 이보다 크면 Bedrock이
+# ValidationException으로 거절해서, 요청할 때 이 값으로 낮춘다 (#15 시험: Nova Pro 한도 10000)
+_MODEL_MAX_OUTPUT_TOKENS = {"amazon.nova-": 10_000}
+
+
+def max_output_tokens_for(model: str, requested: int) -> int:
+    """모델 ID 앞부분(접두사)이 맞는 한도가 있으면 그 값과 요청값 중 작은 값."""
+    for prefix, limit in _MODEL_MAX_OUTPUT_TOKENS.items():
+        if model.startswith(prefix):
+            return min(requested, limit)
+    return requested
+
 
 def _error_code(e: ClientError) -> str:
     return e.response.get("Error", {}).get("Code", "")
@@ -102,7 +114,7 @@ class ConverseProvider:
         client: Any | None = None,
     ) -> None:
         self.model = model
-        self._max_output_tokens = max_output_tokens
+        self._max_output_tokens = max_output_tokens_for(model, max_output_tokens)
         # 도구 강제를 거절하는 모델이면 한 번 알게 된 뒤로는 강제 없이 부른다 (도구는 1개라 그래도 대개 부른다)
         self._force_tool = True
         # 재시도는 파이프라인이 전체 기한 안에서 한다 (SDK 재시도와 겹치지 않게 1회로 둔다)

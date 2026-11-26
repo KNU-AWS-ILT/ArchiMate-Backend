@@ -276,7 +276,7 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 | 환경 변수 | 설명 |
 | :--- | :--- |
 | `LLM_PROVIDER` | `mock`(기본, 고정 응답) / `gemini`(개발용 무료) / `bedrock`(Claude, 유료 플랜) / `bedrock_converse`(Claude 외 Bedrock 모델, 무료 플랜 크레딧) / `anthropic` |
-| `LLM_MODEL` | 설계용 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`, 품질 확인은 `gemini-3.8-flash` / bedrock_converse: `qwen.qwen3-235b-a22b-2507-v1:0`) |
+| `LLM_MODEL` | 설계용 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`, 품질 확인은 `gemini-3.8-flash` / bedrock_converse: `openai.gpt-oss-120b-1:0`, #15 시험에서 데모 시나리오 3안을 통과한 유일한 모델) |
 | `LLM_EXPLAIN_MODEL` | 노드 설명용 소형 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite` / bedrock_converse: `amazon.nova-pro-v1:0`) |
 | `LLM_MAX_VALIDATION_RETRIES` | 검증 실패 시 재시도 횟수 (기본 2) |
 | `LLM_REQUEST_TIMEOUT_S` | LLM 1회 호출 타임아웃(초, 기본 50) |
