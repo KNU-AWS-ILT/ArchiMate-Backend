@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from archimate.schemas import Tier
 
-ProviderName = Literal["mock", "gemini", "bedrock", "anthropic"]
+ProviderName = Literal["mock", "gemini", "bedrock", "bedrock_converse", "anthropic"]
 
 DEFAULT_MODELS: dict[str, str] = {
     "mock": "mock",
@@ -18,6 +18,9 @@ DEFAULT_MODELS: dict[str, str] = {
     # Bedrock(Mantle 엔드포인트) 모델 ID는 'anthropic.' 접두사만 붙는다.
     # 서울 리전은 global 라우팅이라 'global.' 같은 추론 프로필 접두사가 필요 없다 (#22)
     "bedrock": "anthropic.claude-opus-5-5",
+    # Claude가 아닌 Bedrock 모델 (Converse API). 배포 계정(무료 플랜, 시드니)에서 호출을 확인한 모델 (#15).
+    # 품질은 시나리오 평가로 비교한 뒤 정한다. 다른 후보: openai.gpt-oss-120b-1:0, amazon.nova-pro-v1:0
+    "bedrock_converse": "qwen.qwen3-235b-a22b-2507-v1:0",
     "anthropic": "claude-opus-5-5",
 }
 
@@ -26,6 +29,7 @@ DEFAULT_EXPLAIN_MODELS: dict[str, str] = {
     "mock": "mock",
     "gemini": "gemini-3.5-flash-lite",
     "bedrock": "anthropic.claude-haiku-5-5",
+    "bedrock_converse": "amazon.nova-pro-v1:0",
     "anthropic": "claude-haiku-5-5",
 }
 

@@ -275,9 +275,9 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 
 | 환경 변수 | 설명 |
 | :--- | :--- |
-| `LLM_PROVIDER` | `mock`(기본, 고정 응답) / `gemini`(개발용 무료) / `bedrock`(최종) / `anthropic` |
-| `LLM_MODEL` | 설계용 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`, 품질 확인은 `gemini-3.8-flash`) |
-| `LLM_EXPLAIN_MODEL` | 노드 설명용 소형 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`) |
+| `LLM_PROVIDER` | `mock`(기본, 고정 응답) / `gemini`(개발용 무료) / `bedrock`(Claude, 유료 플랜) / `bedrock_converse`(Claude 외 Bedrock 모델, 무료 플랜 크레딧) / `anthropic` |
+| `LLM_MODEL` | 설계용 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite`, 품질 확인은 `gemini-3.8-flash` / bedrock_converse: `qwen.qwen3-235b-a22b-2507-v1:0`) |
+| `LLM_EXPLAIN_MODEL` | 노드 설명용 소형 모델 ID. 비우면 제공자별 기본값 (gemini: `gemini-3.5-flash-lite` / bedrock_converse: `amazon.nova-pro-v1:0`) |
 | `LLM_MAX_VALIDATION_RETRIES` | 검증 실패 시 재시도 횟수 (기본 2) |
 | `LLM_REQUEST_TIMEOUT_S` | LLM 1회 호출 타임아웃(초, 기본 50) |
 | `LLM_GENERATION_DEADLINE_S` | 설계 생성 전체 기한(초, 기본 150). 기한 안에 못 끝낸 안은 `LLM_TIMEOUT` 실패 |
@@ -290,7 +290,7 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 | `LLM_CLAUDE_EFFORT` | Claude 추론 깊이 `low` / `medium` / `high` (기본 low) |
 | `LLM_PROMPT_CACHE` | Claude 경로에서 시스템 프롬프트 캐시 (기본 `false`. Bedrock 실제 호출로 확인한 뒤 켠다) |
 | `GEMINI_API_KEY` | Google AI Studio API 키 (`LLM_PROVIDER=gemini`일 때) |
-| `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울, `LLM_PROVIDER=bedrock`일 때) |
+| `AWS_REGION` | Bedrock 리전 (기본 `ap-northeast-2` 서울). Lambda에서는 직접 넣지 않고 Lambda가 넣는 값(배포 계정은 `ap-southeast-2` 시드니)을 쓴다 |
 | `API_DOCS_ENABLED` | Swagger UI·`/openapi.json` 노출 여부 (기본 `true`, AWS 배포에서는 `false` 권장) |
 | `DESIGNS_TABLE` | (AWS Lambda) 설계 결과 테이블 이름. 설계 생성·노드 설명 Lambda |
 | `EXPLANATIONS_TABLE` | (AWS Lambda) 노드 설명 캐시 테이블 이름. 노드 설명 Lambda |
@@ -316,5 +316,6 @@ python scripts/build_lambda.py --platform host        # 이 PC용 (import 확인
 >
 > **비용·데이터 주의**
 > - 개발 기간에는 Mock과 Gemini 무료 티어만 사용합니다. AWS 배포는 `LLM_PROVIDER=bedrock`(모델 ID는 비우면 `anthropic.claude-opus-5-5`, 설명용 `anthropic.claude-haiku-5-5`)이고, Lambda 역할에는 `bedrock-mantle:CreateInference` 권한이 필요합니다. (#15)
+> - 배포 계정(무료 플랜, 시드니)은 Claude를 쓸 수 없어서 `LLM_PROVIDER=bedrock_converse`로 Qwen·Amazon Nova 등을 씁니다. Converse API의 도구 호출로 JSON을 강제하고, Lambda 역할에는 해당 모델의 `bedrock:InvokeModel` 권한이 필요합니다. 호출 비용은 크레딧에서 빠지고, 크레딧을 다 쓰면 계정이 닫히므로 `API_DAILY_GENERATION_LIMIT`과 함께 씁니다. (#15)
 > - Gemini 무료 티어 입력은 Google 제품 개선에 쓰일 수 있으므로 **실사용자 데이터를 넣지 않습니다.**
 > - `.env`와 API 키는 절대 커밋하지 않습니다.

@@ -5,8 +5,6 @@
 - 한도는 'API 키'가 아니라 'Google Cloud 프로젝트' 단위. 팀원별로 각자 프로젝트를 만들면 한도가 따로 잡힌다.
 """
 
-from typing import Any
-
 import httpx
 from google import genai
 from google.genai import errors as genai_errors
@@ -21,28 +19,7 @@ from archimate.llm.errors import (
     LLMTimeoutError,
 )
 from archimate.llm.providers.base import ChatMessage
-
-
-def inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
-    """$defs/$ref를 펼친다.
-
-    Gemini는 $ref 옆에 description 같은 다른 키가 있으면 거부하는데,
-    Pydantic은 그런 스키마를 만든다. 우리 스키마는 재귀가 없으므로 펼쳐서 보낸다.
-    """
-    defs = schema.get("$defs", {})
-
-    def resolve(node: Any) -> Any:
-        if isinstance(node, dict):
-            if "$ref" in node:
-                name = node["$ref"].split("/")[-1]
-                merged = {**resolve(defs[name]), **{k: v for k, v in node.items() if k != "$ref"}}
-                return resolve(merged)
-            return {k: resolve(v) for k, v in node.items() if k not in ("$defs", "default")}
-        if isinstance(node, list):
-            return [resolve(v) for v in node]
-        return node
-
-    return resolve(schema)
+from archimate.llm.providers.schema import inline_refs
 
 
 class GeminiProvider:
