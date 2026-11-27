@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from archimate.schemas import Tier
 
-ProviderName = Literal["mock", "gemini", "bedrock", "anthropic"]
+ProviderName = Literal["mock", "gemini", "bedrock", "bedrock_converse", "anthropic"]
 
 DEFAULT_MODELS: dict[str, str] = {
     "mock": "mock",
@@ -18,6 +18,10 @@ DEFAULT_MODELS: dict[str, str] = {
     # Bedrock(Mantle 엔드포인트) 모델 ID는 'anthropic.' 접두사만 붙는다.
     # 서울 리전은 global 라우팅이라 'global.' 같은 추론 프로필 접두사가 필요 없다 (#22)
     "bedrock": "anthropic.claude-opus-5-5",
+    # Claude가 아닌 Bedrock 모델 (Converse API). 배포 계정(무료 플랜, 시드니)에서 데모 시나리오로 비교 (#15, 11-26):
+    #   gpt-oss-120b만 통과 (3안 + 운영 절차 67.8초, 실패 0).
+    #   qwen3-235b는 필수 항목(edges, usage)을, nova-pro는 groupId에 "null" 문자열을 넣어 3회 모두 검증 실패
+    "bedrock_converse": "openai.gpt-oss-120b-1:0",
     "anthropic": "claude-opus-5-5",
 }
 
@@ -26,6 +30,8 @@ DEFAULT_EXPLAIN_MODELS: dict[str, str] = {
     "mock": "mock",
     "gemini": "gemini-3.5-flash-lite",
     "bedrock": "anthropic.claude-haiku-5-5",
+    # 노드 설명은 nova-pro가 4.6초로 가장 빠르다 (gpt-oss 9.6초). 출력 한도 10000은 제공자가 맞춘다 (#15)
+    "bedrock_converse": "amazon.nova-pro-v1:0",
     "anthropic": "claude-haiku-5-5",
 }
 
