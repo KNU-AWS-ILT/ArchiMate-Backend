@@ -1,0 +1,10 @@
+# Railway dev server dependencies (#58). Railpack installs Python deps only from
+# requirements.txt or a lock file, not from pyproject.toml alone.
+# Must match [project] dependencies in pyproject.toml (checked by tests/test_requirements.py).
+# Keep this file ASCII: pip on Windows reads it with the locale encoding (cp949).
+pydantic>=2.9
+pydantic-settings>=2.6
+anthropic[bedrock]>=2.10
+google-genai>=3.5
+fastapi>=0.165
+uvicorn[standard]>=0.54

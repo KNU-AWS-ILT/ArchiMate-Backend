@@ -212,6 +212,7 @@ ruff check . && ruff format . && pytest                    # 린트·포맷·테
 > 프론트가 실제 API로 연동해 볼 개발 서버입니다. 모킹 LLM이라 비용이 들지 않습니다. 결제 수단 등록·유료 플랜 업그레이드는 하지 않습니다(코딩 컨벤션 1장).
 
 `railway.json`에 시작 명령(`uvicorn ... --port $PORT`)과 헬스 체크(`/api/v1/health`)가 들어 있어서, Railway에서 이 저장소를 연결하면 별도 설정 없이 배포됩니다.
+Railway 빌더(Railpack)는 `pyproject.toml`만으로는 의존성을 설치하지 않아서, 루트의 `requirements.txt`로 설치합니다. `pyproject.toml`의 기본 의존성을 바꾸면 `requirements.txt`도 같이 고칩니다(테스트가 확인합니다). (#58)
 
 1. Railway에서 New Project → Deploy from GitHub repo → `ArchiMate-Backend` 선택
 2. Variables에 아래 값을 넣습니다. API 키는 넣지 않습니다.
