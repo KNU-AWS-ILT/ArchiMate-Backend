@@ -34,6 +34,15 @@ def build_provider(settings: LLMSettings, *, model: str | None = None) -> LLMPro
                 timeout_s=settings.request_timeout_s,
                 prompt_cache=settings.prompt_cache,
             )
+        case "bedrock_converse":
+            from archimate.llm.providers.converse import ConverseProvider
+
+            return ConverseProvider(
+                model=model,
+                aws_region=settings.aws_region,
+                max_output_tokens=settings.max_output_tokens,
+                timeout_s=settings.request_timeout_s,
+            )
         case "anthropic":
             from archimate.llm.providers.claude import ClaudeProvider
 
